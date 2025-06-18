@@ -49,21 +49,23 @@ def put_korean_text(image, text, position, font_size=30, color=(255, 255, 255)):
     # Convert to PIL Image
     img_pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(img_pil)
-    
+
     # 폰트 설정 (시스템에 따라 다른 폰트 경로 사용)
+    system = platform.system()
+    if system == 'Windows':
+        font_path = 'C:/Windows/Fonts/NanumGothic.ttf'
+    elif system == 'Darwin':  # macOS
+        font_path = '/System/Library/Fonts/AppleSDGothicNeo.ttc'
+    else:  # Linux
+        font_path = '/usr/share/fonts/truetype/nanum/NanumGothic.ttf'
+
+    # 폰트 로드 (없으면 예외)
     try:
-        if platform.system() == 'Darwin':  # macOS
-            font_path = '/System/Library/Fonts/AppleSDGothicNeo.ttc'
-        elif platform.system() == 'Windows':
-            font_path = 'C:/Windows/Fonts/malgun.ttf'
-        else:  # Linux
-            font_path = '/usr/share/fonts/truetype/nanum/NanumGothic.ttf'
-        
         font = ImageFont.truetype(font_path, font_size)
-    except:
-        # 폰트를 찾을 수 없는 경우 기본 폰트 사용
+    except IOError:
+        print(f"Warning: 한글폰트 로드 실패({font_path}), 기본 폰트 사용")
         font = ImageFont.load_default()
-    
+
     # Draw text
     draw.text(position, text, font=font, fill=color)
     
@@ -280,7 +282,7 @@ def real_time_ksl():
     }
     
     # Load the trained model
-    model_path = 'checkpoints/best_model.h5'
+    model_path = 'models/ksl_model_modified.h5' #'checkpoints/best_model.h5'
     if not os.path.exists(model_path):
         model_path = 'models/ksl_model_final.h5'
     
