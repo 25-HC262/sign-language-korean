@@ -5,7 +5,7 @@
 python -m venv [가상환경 이름]
 .[가상환경 이름]/Scripts/activate
 
-pip install -r requirements.txt
+pip install -r requirements-win.txt
 
 ```
 
@@ -16,7 +16,7 @@ source venv/bin/activate
 
 pip install --upgrade pip
 pip cache purge
-pip install -r requirements.txt
+pip install -r requirements-mac.txt
 pip install tensorflow-metal==1.1.0
 ```
 
