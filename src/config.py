@@ -13,7 +13,7 @@ PAD = -100.
 # Training parameters
 LEARNING_RATE = 1e-4
 BATCH_SIZE = 16
-EPOCHS = 100
+EPOCHS = 70
 VALIDATION_SPLIT = 0.2
 
 # OpenPose keypoint structure:
@@ -22,7 +22,7 @@ VALIDATION_SPLIT = 0.2
 # Left Hand: 95-115 (21 points)
 # Right Hand: 116-136 (21 points)
 
-# Body keypoints (important for sign language)
+# 전체 Openpose 신체 키포인트
 BODY_KEYPOINTS = {
     'Nose': 0, 'Neck': 1,
     'RShoulder': 2, 'RElbow': 3, 'RWrist': 4,
@@ -36,19 +36,18 @@ BODY_KEYPOINTS = {
     'RBigToe': 22, 'RSmallToe': 23, 'RHeel': 24
 }
 
-# 선택적 랜드마크들
-# Focus on upper body, face, and hands
+# 선택적 Openpose 랜드마크들
+# 상체, 얼굴, 손
 
-# Upper body points (more relevant for sign language)
+# 상체
 POSE = [0, 1, 2, 3, 4, 5, 6, 7, 15, 16, 17, 18]  # Nose, neck, shoulders, arms, eyes, ears
 LPOSE = [5, 6, 7]  # Left arm
 RPOSE = [2, 3, 4]  # Right arm
 
-# Face points - all are important for Korean sign language
+# 얼굴
 # Select key facial features
 FACE_FEATURES = list(range(25, 95))  # All face points (70 points)
 
-# For efficiency, we can select subset of face points
 # Mouth region (important for Korean sign language)
 LIP = list(range(73, 93))  # Approximate mouth region (20 points)
 
@@ -59,7 +58,7 @@ LEYE = list(range(67, 73))  # Left eye region (6 points)
 # Nose region
 NOSE_FACE = list(range(52, 61))  # Nose region in face keypoints (9 points)
 
-# Hand points - all are crucial
+# 손
 LHAND = list(range(95, 116))   # All left hand: 21 points
 RHAND = list(range(116, 137))  # All right hand: 21 points
 
@@ -95,6 +94,7 @@ KSL_SENTENCES = {
     'NIA_SL_SEN0356': '죄송합니다',
     'NIA_SL_SEN2000': '수고하셨습니다'
 }
+DIRECTIONS = ['D', 'F', 'L', 'R', 'U']
 
 if __name__ == "__main__":
     print(f"Number of selected keypoints: {NUM_NODES}")

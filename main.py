@@ -21,24 +21,15 @@ import platform
 
 # Import custom modules
 from src.backbone import get_model, CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESH_HOLD, MAX_LEN, POINT_LANDMARKS
+from src.config import SEQ_LEN, THRESH_HOLD, MAX_LEN, POINT_LANDMARKS, KSL_SENTENCES
 
 # MediaPipe setup
 mp_holistic = mp.solutions.holistic
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 
-# Label mapping
-LABEL_MAP = {
-    'NIA_SL_SEN0181': '도와주세요',
-    'NIA_SL_SEN0354': '안녕하세요',
-    'NIA_SL_SEN0355': '감사합니다',
-    'NIA_SL_SEN0356': '죄송합니다',
-    'NIA_SL_SEN2000': '수고하셨습니다'
-}
-
 # Create reverse mapping for decoding
-idx_to_label = {i: v for i, (k, v) in enumerate(LABEL_MAP.items())}
+idx_to_label = {i: v for i, (k, v) in enumerate(KSL_SENTENCES.items())}
 label_to_idx = {v: i for i, v in idx_to_label.items()}
 
 
@@ -282,7 +273,7 @@ def real_time_ksl():
     }
     
     # Load the trained model
-    model_path = 'models/ksl_model_modified.h5' #'checkpoints/best_model.h5'
+    model_path = 'models/ksl_action_model.h5' #'checkpoints/best_model.h5'
     if not os.path.exists(model_path):
         model_path = 'models/ksl_model_final.h5'
     
