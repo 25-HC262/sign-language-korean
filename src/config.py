@@ -13,7 +13,7 @@ PAD = -100.
 LEARNING_RATE = 0.0001
 BATCH_SIZE = 16
 EPOCHS = 300
-#VALIDATION_SPLIT = 0.2
+VALIDATION_SPLIT = 0.2
 
 # ============= POSE KEYPOINTS (0-24) =============
 # OpenPose BODY_25 model keypoints
