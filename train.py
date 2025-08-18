@@ -8,7 +8,7 @@ import datetime
 # 커스텀
 from src.backbone import get_model, TFLiteModel
 from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, KSL_SENTENCES, DIRECTIONS, VALIDATION_SPLIT
-from preprocessing.data_loader import KSLDataLoader
+from preprocessing.dataset_loader import KSLDataLoader
 
 '''
 영상 1개(SEQUENCE) = 키포인트 파일 100-384개(현재 최대 MAX_LEN이 384라)로 구성됨.
@@ -30,10 +30,10 @@ def train_model():
     # Load training data
     print("\nLoading training data...")
     dataset_loader = KSLDataLoader('data/openpose_keypoints', label_map=LABEL_MAP, is_training=True)
-    dataset_loader2 = KSLDataLoader('data/openpose_keypoints', label_map=LABEL_MAP, is_training=True)
-    all_dataset, all_size = dataset_loader.get_dataset()
-    print(f"Total training samples: {all_size}")
-    assert all_size != 0, "No training data found"
+    all_samples = dataset_loader.samples
+    if not all_samples:
+        raise ValueError("No training data found. Please check the path.")
+    print(f"Total training samples found: {len(all_samples)}")
 
     # VALIDATION_SPLIT 비율로 train/test split
     print(f"Using {(1-VALIDATION_SPLIT)*10}/{VALIDATION_SPLIT*10} train/test split.")
@@ -49,16 +49,15 @@ def train_model():
     for folder_name, samples in grouped_by_folder_name.items():
         np.random.shuffle(samples)
         split_train_idx = int((1-VALIDATION_SPLIT)*len(samples))
-        train_samples.append(samples[ :split_train_idx])
-        val_samples.append(samples[split_train_idx: ])
-        print(f"{folder_name} split - Train: {len(samples[ :split_train_idx])}, Validation: {len(samples[split_train_idx: ])}")
+        train_samples.extend(samples[:split_train_idx])
+        val_samples.extend(samples[split_train_idx:])
     print(f"Final dataset split - Train: {len(train_samples)}, Validation: {len(val_samples)}")
 
     # sample 덮어 써서 get_dataset()으로 데이터셋화
     dataset_loader.samples = train_samples
     train_dataset = dataset_loader.get_dataset()
-    dataset_loader2.samples = val_samples
-    val_dataset = dataset_loader2.get_dataset()
+    dataset_loader.samples = val_samples
+    val_dataset = dataset_loader.get_dataset()
 
     # Create model
     print("\nCreating model...")
