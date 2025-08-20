@@ -4,6 +4,8 @@ import numpy as np
 import tensorflow as tf
 from collections import defaultdict
 import datetime
+import matplotlib.pyplot as plt
+from typing import Dict
 
 # 커스텀
 from src.backbone import get_model, TFLiteModel
@@ -111,17 +113,20 @@ def train_model():
         verbose=1
     )
 
-    # Save final model
     print("\nSaving model...")
-
     model.save(save_model)
 
     # Convert to TFLite
     print("Converting to TFLite...")
     tflite_model = TFLiteModel(model)  # Pass single model, not list
-    converter = tf.lite.TFLiteConverter.from_concrete_functions(
-        [tflite_model.__call__.get_concrete_function()]
+
+    concrete_input_signature = tf.TensorSpec(
+        shape=[1, 137, 3],  # (배치=1, 키포인트=137, 채널=3(x,y,c))
+        dtype=tf.float32
     )
+    concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
+    converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function])
+
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
 
     try:

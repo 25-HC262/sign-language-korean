@@ -207,10 +207,11 @@ def preprocess_sequence(sequence):
     
     # Flatten and concatenate
     x_flat = selected_xy.reshape(MAX_LEN, -1)
-    dx_flat = dx.reshape(MAX_LEN, -1)
-    dx2_flat = dx2.reshape(MAX_LEN, -1)
+    #dx_flat = dx.reshape(MAX_LEN, -1)
+    #dx2_flat = dx2.reshape(MAX_LEN, -1)
     
-    processed = np.concatenate([x_flat, dx_flat, dx2_flat], axis=-1)
+    #processed = np.concatenate([x_flat, dx_flat, dx2_flat], axis=-1)
+    processed = x_flat
     processed = np.nan_to_num(processed, 0)
     
     return processed
@@ -259,7 +260,7 @@ def draw_styled_landmarks(image, results):
         )
 
 
-def process_video(video_path, model_path='models/ksl_model_2025_08_17_17-21-36.h5', output_video=None, show_display=True):
+def process_video(video_path, model_path='models/ksl_model_2025_08_18_18-19-44.h5', output_video=None, show_display=True):
     """
     Process a video file for sign language recognition
     
@@ -526,8 +527,8 @@ def save_results_to_json(results, output_path):
 def main():
     parser = argparse.ArgumentParser(description='Korean Sign Language Recognition from Video')
     parser.add_argument('video_path', type=str, help='Path to input video file')
-    parser.add_argument('--model', type=str, default='models/ksl_model_2025_08_17_17-21-36.h5',
-                       help='Path to trained model (default: models/ksl_model_2025_08_17_17-21-36.h5)')
+    parser.add_argument('--model', type=str, default='models/ksl_model_2025_08_18_18-19-44.h5',
+                       help='Path to trained model (default: models/ksl_model_2025_08_18_18-19-44.h5)')
     parser.add_argument('--output-video', type=str, help='Path to save output video with annotations')
     parser.add_argument('--output-csv', type=str, help='Path to save results as CSV')
     parser.add_argument('--output-json', type=str, help='Path to save results as JSON')
