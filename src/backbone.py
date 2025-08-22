@@ -289,7 +289,7 @@ class TFLiteModel(tf.Module):
         super(TFLiteModel, self).__init__()
 
         # Load the feature generation and main model
-        self.prep_inputs = Preprocess()
+        self.preprocess_layer = Preprocess()
         self.islr_model = islr_model  # Single model, not a list
     
     @tf.function(input_signature=[tf.TensorSpec(shape=[None, 137, 3], dtype=tf.float32, name='inputs')])
@@ -303,11 +303,13 @@ class TFLiteModel(tf.Module):
         Returns:
             A dictionary with a single key 'outputs' and corresponding output tensor.
         """
-        x = self.prep_inputs(tf.cast(inputs, dtype=tf.float32))
+        x = self.preprocess_layer(inputs)
+        expected_shape = self.islr_model.input_shape[1:] # (배치 크기 제외)
+        x.set_shape([inputs.shape[0]] + expected_shape)
         outputs = self.islr_model(x)  # Call single model directly
         return {'outputs': outputs}
 
-def get_model(max_len=MAX_LEN, dropout_step=0, dim=192, num_classes=5):
+def get_model(max_len=MAX_LEN, dropout_step=0, dim=98, num_classes=5):
     """
     Creates a model for sequence classification using a combination of convolutional layers and transformer blocks.
 
@@ -321,8 +323,8 @@ def get_model(max_len=MAX_LEN, dropout_step=0, dim=192, num_classes=5):
         A TensorFlow Keras Model object.
     """
     inp = tf.keras.Input((max_len, CHANNELS))
-    #x = tf.keras.layers.Masking(mask_value=PAD,input_shape=(max_len,CHANNELS))(inp) #we don't need masking layer with inference
-    x = inp
+    x = tf.keras.layers.Masking(mask_value=PAD,input_shape=(max_len,CHANNELS))(inp) #we don't need masking layer with inference
+    #x = inp # 추론 시에는 해당 부분을 주석 처리 하고, 학습 시에는 326(윗) 라인을 주석 처리해야 합니다.
     ksize = 17
     
     # Stem layers
