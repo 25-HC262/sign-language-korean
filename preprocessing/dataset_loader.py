@@ -255,16 +255,15 @@ class KSLDataLoader:
         selected_xy = (selected_xy - neck_mean) / std
 
         # 4. Calculate derivatives
-        #dx = np.diff(selected_xy, n=1, axis=0, prepend=selected_xy[0:1])
-        #dx2 = np.diff(selected_xy, n=2, axis=0, prepend=selected_xy[0:2])
+        dx = np.diff(selected_xy, n=1, axis=0, prepend=selected_xy[0:1])
+        dx2 = np.diff(selected_xy, n=2, axis=0, prepend=selected_xy[0:2])
 
         # 5. Flatten and concatenate
         processed = np.concatenate([
             selected_xy.reshape(MAX_LEN, -1),
-            #dx.reshape(MAX_LEN, -1),
-            #dx2.reshape(MAX_LEN, -1)
+            dx.reshape(MAX_LEN, -1),
+            dx2.reshape(MAX_LEN, -1)
         ], axis=-1)
-        processed = selected_xy.reshape(MAX_LEN, -1)
 
         # 6. Final cleanup
         processed = np.nan_to_num(processed, 0)
@@ -280,7 +279,7 @@ class KSLDataLoader:
         dataset = tf.data.Dataset.from_generator(
             self._data_generator,
             output_signature=(
-                tf.TensorSpec(shape=(MAX_LEN, 98), dtype=tf.float32), # (시퀀스 길이, 특징 개수)
+                tf.TensorSpec(shape=(MAX_LEN, 294), dtype=tf.float32), # (시퀀스 길이, 특징 개수)
                 tf.TensorSpec(shape=(), dtype=tf.int32)
             )
         )
