@@ -9,14 +9,10 @@ import mediapipe as mp
 from tensorflow.keras.layers import Layer, Conv1D, Dense, Dropout, Add, Input, GlobalAveragePooling1D, Activation, BatchNormalization, Multiply, Reshape, Lambda
 from tensorflow.keras import backend as K
 from src.backbone import get_model, CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESH_HOLD, MAX_LEN, POINT_LANDMARKS
+from src.config import SEQ_LEN, THRESH_HOLD, MAX_LEN, POINT_LANDMARKS, KSL_SENTENCES
 
 # 수어 레이블 정의
-LABEL_MAP = {
-    'NIA_SL_SEN0181': '도와주세요', 'NIA_SL_SEN0354': '안녕하세요',
-    'NIA_SL_SEN0355': '감사합니다', 'NIA_SL_SEN0356': '죄송합니다',
-    'NIA_SL_SEN2000': '수고하셨습니다'
-}
+LABEL_MAP = KSL_SENTENCES
 idx_to_label = {i: v for i, (k, v) in enumerate(LABEL_MAP.items())}
 
 # MediaPipe 초기화
