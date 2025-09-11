@@ -5,10 +5,10 @@ import json
 THRESH_HOLD = 0.5
 SEQ_LEN = 60
 ROWS_PER_FRAME = 137
-MAX_LEN = 384
+MAX_LEN = 125
 CROP_LEN = MAX_LEN
 NUM_CLASSES = 5
-PAD = -100.
+PAD = 0. #-100.
 
 # Training parameters
 LEARNING_RATE = 0.0001
@@ -156,7 +156,7 @@ assert all(0 <= idx < 137 for idx in POINT_LANDMARKS), "Invalid landmark indices
 assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"
 
 NUM_NODES = len(POINT_LANDMARKS)
-CHANNELS = 2 * NUM_NODES  # x, y, dx, dy, dx2, dy2 for each point
+CHANNELS = 2 * NUM_NODES  # x, y for each point
 
 # ============= DATA PATHS =============
 KSL_DATA_PATH = "data"
