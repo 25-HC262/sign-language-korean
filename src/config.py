@@ -1,4 +1,5 @@
 import numpy as np
+import json
 
 # Model parameters
 THRESH_HOLD = 0.5
@@ -155,7 +156,7 @@ assert all(0 <= idx < 137 for idx in POINT_LANDMARKS), "Invalid landmark indices
 assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"
 
 NUM_NODES = len(POINT_LANDMARKS)
-CHANNELS = 6 * NUM_NODES  # x, y, dx, dy, dx2, dy2 for each point
+CHANNELS = 2 * NUM_NODES  # x, y, dx, dy, dx2, dy2 for each point
 
 # ============= DATA PATHS =============
 KSL_DATA_PATH = "data"
@@ -163,13 +164,11 @@ KSL_TRAIN_PATH = "data/train"
 KSL_VAL_PATH = "data/val"
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
-KSL_SENTENCES = {
-    'NIA_SL_SEN0181': '도와주세요',
-    'NIA_SL_SEN0354': '안녕하세요',
-    'NIA_SL_SEN0355': '감사합니다',
-    'NIA_SL_SEN0356': '죄송합니다',
-    'NIA_SL_SEN2000': '수고하셨습니다'
-}
+try:
+    with open('label_map.json', 'r', encoding='utf-8') as f:
+        KSL_SENTENCES = json.load(f)
+except FileNotFoundError:
+    print("Warning: 'label_map.json' not found.")
 DIRECTIONS = ['D', 'F', 'L', 'R', 'U']
 
 if __name__ == "__main__":

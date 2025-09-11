@@ -23,7 +23,7 @@ import csv
 
 # Import custom modules
 from src.backbone import get_model, CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESH_HOLD, MAX_LEN, POINT_LANDMARKS
+from src.config import SEQ_LEN, THRESH_HOLD, MAX_LEN, POINT_LANDMARKS, KSL_SENTENCES
 
 # MediaPipe setup
 mp_holistic = mp.solutions.holistic
@@ -31,13 +31,7 @@ mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 
 # Label mapping
-LABEL_MAP = {
-    'NIA_SL_SEN0181': '도와주세요',
-    'NIA_SL_SEN0354': '안녕하세요',
-    'NIA_SL_SEN0355': '감사합니다',
-    'NIA_SL_SEN0356': '죄송합니다',
-    'NIA_SL_SEN2000': '수고하셨습니다'
-}
+LABEL_MAP = KSL_SENTENCES
 
 # Create reverse mapping for decoding
 idx_to_label = {i: v for i, (k, v) in enumerate(LABEL_MAP.items())}
@@ -260,7 +254,7 @@ def draw_styled_landmarks(image, results):
         )
 
 
-def process_video(video_path, model_path='models/ksl_model_2025_08_18_18-19-44.h5', output_video=None, show_display=True):
+def process_video(video_path, model_path='models/ksl_model_2025_08_27_17-25-28.h5', output_video=None, show_display=True):
     """
     Process a video file for sign language recognition
     
@@ -527,8 +521,8 @@ def save_results_to_json(results, output_path):
 def main():
     parser = argparse.ArgumentParser(description='Korean Sign Language Recognition from Video')
     parser.add_argument('video_path', type=str, help='Path to input video file')
-    parser.add_argument('--model', type=str, default='models/ksl_model_2025_08_18_18-19-44.h5',
-                       help='Path to trained model (default: models/ksl_model_2025_08_18_18-19-44.h5)')
+    parser.add_argument('--model', type=str, default='models/ksl_model_2025_08_27_17-25-28.h5',
+                       help='Path to trained model (default: models/ksl_model_2025_08_27_17-25-28.h5)')
     parser.add_argument('--output-video', type=str, help='Path to save output video with annotations')
     parser.add_argument('--output-csv', type=str, help='Path to save results as CSV')
     parser.add_argument('--output-json', type=str, help='Path to save results as JSON')
