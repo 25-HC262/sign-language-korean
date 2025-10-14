@@ -8,9 +8,12 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, List, Dict, Any, Tuple
-from collections import defaultdict
+import pickle
+from pathlib import Path
 from umap.parametric_umap import ParametricUMAP
 from umap.parametric_umap import load_ParametricUMAP
+from tensorflow.keras.callbacks import EarlyStopping
+from tqdm import tqdm
 
 
 class DataDimensionReducer:
@@ -19,7 +22,7 @@ class DataDimensionReducer:
         self.data_path = data_path
         self.label_map = label_map
         self.dims = (LEN_LANDMARKS, 2)  # 49, 2
-        self.n_components = 2
+        self.n_components = 32
 
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
@@ -29,6 +32,7 @@ class DataDimensionReducer:
             self.s3_bucket = parsed_s3_path.netloc
             self.s3_prefix = parsed_s3_path.path.lstrip('/')
             self.s3_client = boto3.client('s3')
+
         print("Constructing encoder...")
         self.encoder = tf.keras.Sequential([
             tf.keras.layers.InputLayer(input_shape=self.dims),
@@ -62,7 +66,6 @@ class DataDimensionReducer:
             tf.keras.layers.Reshape(target_shape=self.dims)
         ])
 
-        self.full_dataset = []
         print("Creating dataset...")
         self.train_dataset, self.test_dataset = self.create_dataset()
 
@@ -79,7 +82,7 @@ class DataDimensionReducer:
             verbose=True
         )
 
-        self.save_path = save_path  # f"{base_path}/졸업프로젝트"
+        self.save_path = os.path.expanduser(save_path)  # f"{base_path}/졸업프로젝트"
         self.s3_save_path = s3_save_path
 
     def create_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
@@ -89,86 +92,51 @@ class DataDimensionReducer:
         for folder_name, folder_meaning in self.label_map.items():
             for direction in DIRECTIONS:
                 if self.is_s3:
-                    direction_prefix = os.path.join(
-                        self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
+                    direction_prefix = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
                     person_prefixes = self._list_s3_subdirs(direction_prefix)
                     print(f"Searching in : {direction_prefix}")
                 else:
-                    direction_dir = os.path.join(
-                        self.data_path, folder_name, f"{foldr_name}_{direction}")
+                    direction_dir = os.path.join(self.data_path, folder_name, f"{folder_name}_{direction}")
                     if not os.path.exists(direction_dir):
                         continue
-                    person_dirs = glob.glob(
-                        os.path.join(
-                            direction_dir,
-                            f"*REAL*_{direction}"))
+                    person_dirs = glob.glob(os.path.join(direction_dir, f"*REAL*_{direction}"))
                 person_paths = person_prefixes if self.is_s3 else person_dirs
-                for person_path in person_paths:
+                for person_path in tqdm(person_paths, desc=f"Loading {folder_name}_{direction}"):
                     if self.is_s3:
-                        print(f"Searching in : {person_path}")
-                        keypoint_files = self._get_s3_keypoint_files(
-                            person_path)
+                        keypoint_files = self._get_s3_keypoint_files(person_path)
                     else:
                         if not os.path.isdir(person_path):
                             continue
-                        keypoint_files = sorted(
-                            glob.glob(
-                                os.path.join(
-                                    person_path,
-                                    "*_keypoints.json")))
+                        keypoint_files = sorted(glob.glob(os.path.join(person_path,"*_keypoints.json")))
+                    all_keypoint_files.extend(keypoint_files)
 
-                    if len(keypoint_files) > 0:
-                        for file_path in keypoint_files:
-                            if file_path.startswith('s3://'):
-                                parsed_s3_path = urlparse(file_path)
-                                s3_object = self.s3_client.get_object(
-                                    Bucket=parsed_s3_path.netloc,
-                                    Key=parsed_s3_path.path.lstrip('/')
-                                )
-                                file_content = s3_object['Body'].read().decode(
-                                    'utf-8')
-                                data = json.loads(file_content)
-                            else:
-                                with open(file_path, 'r') as f:
-                                    data = json.load(f)
-                            assert 'people' in data, "데이터에 키포인트 없음"
-                            people_data = data['people']
-
-                            assert isinstance(people_data, dict), "이상한 데이터 형식"
-                            person = people_data
-                            assert len(people_data) != 0, "데이터 길이 0"
-
-                            keypoints = self.json_to_numpy(person)
-
-                            if keypoints is not None:
-                                self.full_dataset.append(keypoints)
-
-        total_size = len(self.full_dataset)
+        total_size = len(all_keypoint_files)
         validation_size = int(total_size * VALIDATION_SPLIT)
+        random.shuffle(all_keypoint_files)
 
         print(f"\nTotal samples loaded: {total_size}")
 
-        random.shuffle(self.full_dataset)
+        full_dataset = tf.data.Dataset.from_tensor_slices(all_keypoint_files)
 
-        val_data = self.full_dataset[:validation_size]
-        train_data = self.full_dataset[validation_size:]
+        val_paths_ds = full_dataset.take(validation_size)
+        train_paths_ds = full_dataset.skip(validation_size)
 
-        validation_dataset = tf.data.Dataset.from_generator(
-            lambda: iter(val_data),
-            output_signature=(
-                tf.TensorSpec(shape=(LEN_LANDMARKS, 2), dtype=tf.float32)
-            )
-        ).batch(BATCH_SIZE, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
+        train_dataset = train_paths_ds.map(self.wrapped_loader, num_parallel_calls=tf.data.AUTOTUNE)
+        validation_dataset = val_paths_ds.map(self.wrapped_loader, num_parallel_calls=tf.data.AUTOTUNE)
 
-        train_dataset = tf.data.Dataset.from_generator(
-            lambda: iter(train_data),
-            output_signature=(
-                tf.TensorSpec(shape=(LEN_LANDMARKS, 2), dtype=tf.float32)
-            )
-        ).batch(BATCH_SIZE, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
+        # 데이터셋 후처리 (배치, 프리페치 등)
+        train_dataset = train_dataset.batch(BATCH_SIZE, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
+        validation_dataset = validation_dataset.batch(BATCH_SIZE, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
 
         return train_dataset, validation_dataset
 
+    def wrapped_loader(self, path):
+        """create_dataset의 map에서 사용할 wrapper"""
+        return tf.py_function(
+            self.load_and_process_s3_path,
+            inp=[path],
+            Tout=tf.float32
+        )
     def json_to_numpy(self, data: Dict[str, Any]) -> np.ndarray:
         person = data
         # Extract pose keypoints (25 points, 3 values each)
@@ -270,20 +238,41 @@ class DataDimensionReducer:
 
     def train_reducer(self):
         print("Converting tensorflow dataset to numpy array for UMAP fitting...")
-        embedding = self.embedder.fit_transform(self.train_dataset, None) # X, y, landmark_positions
+        self.embedder.fit(self.train_dataset)
         print("Saving embedder model...")
         self.embedder.save(self.save_path)
-        self._upload_model_to_s3()
 
-        # 히스토리 보여주기
-        if hasattr(self.embedder, '_history'):
-            print(self.embedder._history)
-            fig, ax = plt.subplots()
-            ax.plot(self.embedder._history['loss'])
-            ax.set_ylabel('Cross Entropy')
-            ax.set_xlabel('Epoch')
-            ax.set_title('Training Loss')
-            plt.show()
+        # 임베딩 결과 확인
+        print("Transforming data for visualization...")
+        embedding_list = [self.embedder.transform(batch) for batch in self.train_dataset]
+        embedding = np.concatenate(embedding_list, axis=0)
+        print(f"Embedding shape: {embedding.shape}")
+
+        # pickle을 통해서 embedding 객체 저장하기
+        embedding_file_path = os.path.join(self.save_path, "embedding.pkl")
+        Path(embedding_file_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(embedding_file_path, 'wb') as ef:
+            pickle.dump(embedding, ef)
+
+        if not self.is_s3:
+            try:
+                # embedding plot으로 그리기
+
+                # 히스토리 보여주기
+                if hasattr(self.embedder, '_history'):
+                    print(self.embedder._history)
+                    fig, ax = plt.subplots()
+                    ax.plot(self.embedder._history['loss'])
+                    ax.set_ylabel('Cross Entropy')
+                    ax.set_xlabel('Epoch')
+                    ax.set_title('Training Loss')
+                    plt.show()
+            except tf.errors.OutOfRangeError:
+                print("Finished transforming all data.")
+            except Exception as e:
+                print(f"An error occurred during transformation: {e}")
+
+        self._upload_model_to_s3()
 
     def load_encoder(self):
         return load_ParametricUMAP(self.save_path)  # embedder.encoder로 사용할 것
@@ -291,13 +280,29 @@ class DataDimensionReducer:
     # s3 관련 함수
     def load_and_process_s3_path(self, file_path_tensor: tf.Tensor) -> tf.Tensor:
         file_path = file_path_tensor.numpy().decode('utf-8')
+        try:
+            if file_path.startswith('s3://'):
+                parsed_s3_path = urlparse(file_path)
+                s3_object = self.s3_client.get_object(
+                    Bucket=parsed_s3_path.netloc,
+                    Key=parsed_s3_path.path.lstrip('/')
+                )
+                file_content = s3_object['Body'].read().decode('utf-8')
+                data = json.loads(file_content)
+            else:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+            assert 'people' in data, "데이터에 키포인트 없음"
+            people_data = data['people']
 
-    def wrapped_loader(self, path):
-        return tf.py_function(
-            self.load_and_process_s3_path,
-            inp=[path],
-            Tout=tf.float32
-        )
+            assert isinstance(people_data, dict), "이상한 데이터 형식"
+            person = people_data
+            assert len(people_data) != 0, "데이터 길이 0"
+
+            return self.json_to_numpy(person)
+        except Exception as e:
+            print(f"Skipping {file_path}: {e}")
+            return None
 
     def _list_s3_subdirs(self, prefix):
         paginator = self.s3_client.get_paginator('list_objects_v2')
@@ -318,26 +323,24 @@ class DataDimensionReducer:
         local_dir = os.path.expanduser(self.save_path)
         print(f"Uploading files of {local_dir} to {self.s3_save_path}")
         parsed_s3_path = urlparse(self.s3_save_path)
-        self.s3_bucket = parsed_s3_path.netloc
-        self.s3_prefix = parsed_s3_path.path.lstrip('/')
-        self.s3_client = boto3.client('s3')
+        save_bucket = parsed_s3_path.netloc
+        save_prefix = parsed_s3_path.path.lstrip('/')
+
+        # 기존 s3_client 재사용 (이미 __init__에서 생성됨)
+        if not hasattr(self, 's3_client'):
+            self.s3_client = boto3.client('s3')
 
         for root, dirs, files in os.walk(local_dir):
             for file in files:
                 local_path = os.path.join(root, file)
-                s3_path = os.path.join(
-                    self.s3_prefix, os.path.relpath(
-                        local_path, local_dir))
+                s3_path = os.path.join(save_prefix, os.path.relpath(local_path, local_dir))
 
                 try:
-                    self.s3_client.upload_file(
-                        local_path, self.s3_bucket, s3_path)
-                    print(
-                        f"Uploaded {local_path} to s3://{self.s3_bucket}/{s3_path}")
+                    self.s3_client.upload_file(local_path, save_bucket, s3_path)
+                    print(f"Uploaded {local_path} to s3://{save_bucket}/{s3_path}")
 
                 except Exception as e:
-                    print(
-                        f"Error uploading {local_path} to s3://{self.s3_bucket}/{s3_path}: {e}")
+                    print(f"Error uploading {local_path} to s3://{save_bucket}/{s3_path}: {e}")
 
     @staticmethod
     def setting_in_colab():
