@@ -1,0 +1,395 @@
+import os
+import json
+import tensorflow as tf
+import glob
+import boto3
+from urllib.parse import urlparse
+import random
+import numpy as np
+import matplotlib.pyplot as plt
+from typing import Optional, List, Dict, Any, Tuple
+from collections import defaultdict
+from umap.parametric_umap import ParametricUMAP
+from umap.parametric_umap import load_ParametricUMAP
+
+
+class DataDimensionReducer:
+    def __init__(self, data_path, save_path, s3_save_path) -> None:
+        self.setting_in_colab()
+        self.data_path = data_path
+        self.label_map = label_map
+        self.dims = (LEN_LANDMARKS, 2)  # 49, 2
+        self.n_components = 2
+
+        # s3 경로 확인
+        self.is_s3 = data_path.startswith('s3://')
+
+        if self.is_s3:
+            parsed_s3_path = urlparse(data_path)
+            self.s3_bucket = parsed_s3_path.netloc
+            self.s3_prefix = parsed_s3_path.path.lstrip('/')
+            self.s3_client = boto3.client('s3')
+        print("Constructing encoder...")
+        self.encoder = tf.keras.Sequential([
+            tf.keras.layers.InputLayer(input_shape=self.dims),
+            tf.keras.layers.Flatten(),
+
+            tf.keras.layers.Dense(units=512, activation='relu'),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.3),
+
+            tf.keras.layers.Dense(units=256, activation='relu'),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.2),
+
+            tf.keras.layers.Dense(units=128, activation='relu'),
+            tf.keras.layers.Dense(units=self.n_components)
+        ])
+        print("Constructing decoder....")
+        self.decoder = tf.keras.Sequential([
+            tf.keras.layers.InputLayer(input_shape=(self.n_components,)),
+            tf.keras.layers.Dense(units=128, activation="relu"),
+
+            tf.keras.layers.Dense(units=256, activation="relu"),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.2),
+
+            tf.keras.layers.Dense(units=512, activation='relu'),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.3),
+
+            tf.keras.layers.Dense(units=LEN_LANDMARKS * 2, activation='linear'),
+            tf.keras.layers.Reshape(target_shape=self.dims)
+        ])
+
+        self.full_dataset = []
+        print("Creating dataset...")
+        self.train_dataset, self.test_dataset = self.create_dataset()
+
+        print("Constructing embedder...")
+        self.embedder = ParametricUMAP(
+            encoder=self.encoder,
+            decoder=self.decoder,
+            dims=self.dims,
+            n_components=self.n_components,
+            parametric_reconstruction=True,
+            # umap loss & reconstruction loss 모두 반영
+            reconstruction_validation=self.test_dataset,
+            autoencoder_loss=True,
+            verbose=True
+        )
+
+        self.save_path = save_path  # f"{base_path}/졸업프로젝트"
+        self.s3_save_path = s3_save_path
+
+    def create_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
+        print(f"\nStarting data loading from: {self.data_path}")
+        all_keypoint_files = []
+
+        for folder_name, folder_meaning in self.label_map.items():
+            for direction in DIRECTIONS:
+                if self.is_s3:
+                    direction_prefix = os.path.join(
+                        self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
+                    person_prefixes = self._list_s3_subdirs(direction_prefix)
+                    print(f"Searching in : {direction_prefix}")
+                else:
+                    direction_dir = os.path.join(
+                        self.data_path, folder_name, f"{foldr_name}_{direction}")
+                    if not os.path.exists(direction_dir):
+                        continue
+                    person_dirs = glob.glob(
+                        os.path.join(
+                            direction_dir,
+                            f"*REAL*_{direction}"))
+                person_paths = person_prefixes if self.is_s3 else person_dirs
+                for person_path in person_paths:
+                    if self.is_s3:
+                        print(f"Searching in : {person_path}")
+                        keypoint_files = self._get_s3_keypoint_files(
+                            person_path)
+                    else:
+                        if not os.path.isdir(person_path):
+                            continue
+                        keypoint_files = sorted(
+                            glob.glob(
+                                os.path.join(
+                                    person_path,
+                                    "*_keypoints.json")))
+
+                    if len(keypoint_files) > 0:
+                        for file_path in keypoint_files:
+                            if file_path.startswith('s3://'):
+                                parsed_s3_path = urlparse(file_path)
+                                s3_object = self.s3_client.get_object(
+                                    Bucket=parsed_s3_path.netloc,
+                                    Key=parsed_s3_path.path.lstrip('/')
+                                )
+                                file_content = s3_object['Body'].read().decode(
+                                    'utf-8')
+                                data = json.loads(file_content)
+                            else:
+                                with open(file_path, 'r') as f:
+                                    data = json.load(f)
+                            assert 'people' in data, "데이터에 키포인트 없음"
+                            people_data = data['people']
+
+                            assert isinstance(people_data, dict), "이상한 데이터 형식"
+                            person = people_data
+                            assert len(people_data) != 0, "데이터 길이 0"
+
+                            keypoints = self.json_to_numpy(person)
+
+                            if keypoints is not None:
+                                self.full_dataset.append(keypoints)
+
+        total_size = len(self.full_dataset)
+        validation_size = int(total_size * VALIDATION_SPLIT)
+
+        print(f"\nTotal samples loaded: {total_size}")
+
+        random.shuffle(self.full_dataset)
+
+        val_data = self.full_dataset[:validation_size]
+        train_data = self.full_dataset[validation_size:]
+
+        validation_dataset = tf.data.Dataset.from_generator(
+            lambda: iter(val_data),
+            output_signature=(
+                tf.TensorSpec(shape=(LEN_LANDMARKS, 2), dtype=tf.float32)
+            )
+        ).batch(BATCH_SIZE, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
+
+        train_dataset = tf.data.Dataset.from_generator(
+            lambda: iter(train_data),
+            output_signature=(
+                tf.TensorSpec(shape=(LEN_LANDMARKS, 2), dtype=tf.float32)
+            )
+        ).batch(BATCH_SIZE, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
+
+        return train_dataset, validation_dataset
+
+    def json_to_numpy(self, data: Dict[str, Any]) -> np.ndarray:
+        person = data
+        # Extract pose keypoints (25 points, 3 values each)
+        pose_kp = np.array(person.get('pose_keypoints_2d', [])).reshape(-1, 3)
+        assert pose_kp.shape[0] == 25, f"pose keypoint shape differs: {pose_kp.shape[0]}"
+
+        # Extract face keypoints (70 points)
+        face_kp = np.array(person.get('face_keypoints_2d', [])).reshape(-1, 3)
+        assert face_kp.shape[0] == 70, f"face keypoint shape differs: {face_kp.shape[0]}"
+
+        # Extract hand keypoints (21 points each)
+        left_hand_kp = np.array(person.get(
+            'hand_left_keypoints_2d', [])).reshape(-1, 3)
+        assert left_hand_kp.shape[
+                   0] == 21, f"left hand keypoint shape differs: {left_hand_kp.shape[0]}"
+
+        right_hand_kp = np.array(person.get(
+            'hand_right_keypoints_2d', [])).reshape(-1, 3)
+        assert right_hand_kp.shape[
+                   0] == 21, f"right hand keypoint shape differs: {right_hand_kp.shape[0]}"
+
+        # Take x, y coordinates and confidence scores
+        pose_xy = pose_kp[:, :2]
+        pose_conf = pose_kp[:, 2:3]
+
+        face_xy = face_kp[:, :2]
+        face_conf = face_kp[:, 2:3]
+
+        left_hand_xy = left_hand_kp[:, :2]
+        left_hand_conf = left_hand_kp[:, 2:3]
+
+        right_hand_xy = right_hand_kp[:, :2]
+        right_hand_conf = right_hand_kp[:, 2:3]
+
+        # [-1, 1] 정규화
+        # First, find the bounding box of all valid points
+        all_x = np.concatenate([
+            pose_xy[pose_conf[:, 0] > 0.1, 0],
+            face_xy[face_conf[:, 0] > 0.1, 0],
+            left_hand_xy[left_hand_conf[:, 0] > 0.1, 0],
+            right_hand_xy[right_hand_conf[:, 0] > 0.1, 0]
+        ])
+        all_y = np.concatenate([
+            pose_xy[pose_conf[:, 0] > 0.1, 1],
+            face_xy[face_conf[:, 0] > 0.1, 1],
+            left_hand_xy[left_hand_conf[:, 0] > 0.1, 1],
+            right_hand_xy[right_hand_conf[:, 0] > 0.1, 1]
+        ])
+
+        if len(all_x) > 0 and len(all_y) > 0:
+            # Calculate center and scale
+            center_x = (np.max(all_x) + np.min(all_x)) / 2
+            center_y = (np.max(all_y) + np.min(all_y)) / 2
+            scale = max(
+                np.max(all_x) - np.min(all_x),
+                np.max(all_y) - np.min(all_y)) / 2
+
+            # Avoid division by zero
+            if scale < 1:
+                scale = 1
+
+            # [-1, 1] 정규화
+            pose_xy = (pose_xy - [center_x, center_y]) / scale
+            face_xy = (face_xy - [center_x, center_y]) / scale
+            left_hand_xy = (left_hand_xy - [center_x, center_y]) / scale
+            right_hand_xy = (right_hand_xy - [center_x, center_y]) / scale
+
+            # Clip
+            pose_xy = np.clip(pose_xy, -2, 2)
+            face_xy = np.clip(face_xy, -2, 2)
+            left_hand_xy = np.clip(left_hand_xy, -2, 2)
+            right_hand_xy = np.clip(right_hand_xy, -2, 2)
+
+        # Concatenate all keypoints: body(25) + face(70) + left_hand(21) +
+        # right_hand(21) = 137
+        all_keypoints = np.concatenate([
+            pose_xy,
+            face_xy,
+            left_hand_xy,
+            right_hand_xy
+        ], axis=0)
+
+        # Extract selected landmarks
+        selected_keypoints = all_keypoints[POINT_LANDMARKS, :]
+
+        # Normalize using neck
+        neck_pos = all_keypoints[NECK:NECK + 1, :]
+        neck_mean = np.nanmean(neck_pos, axis=0, keepdims=True)
+        if np.isnan(neck_mean).any():
+            neck_mean = np.array([[0.5, 0.5]])
+
+        std = np.nanstd(selected_keypoints)
+        if std == 0:
+            std = 1.0
+        selected_keypoints = (selected_keypoints - neck_mean) / std
+        selected_keypoints = np.nan_to_num(selected_keypoints, 0)
+
+        return selected_keypoints.astype(np.float32)
+
+    def train_reducer(self):
+        print("Converting tensorflow dataset to numpy array for UMAP fitting...")
+        embedding = self.embedder.fit_transform(self.train_dataset, None) # X, y, landmark_positions
+        print("Saving embedder model...")
+        self.embedder.save(self.save_path)
+        self._upload_model_to_s3()
+
+        # 히스토리 보여주기
+        if hasattr(self.embedder, '_history'):
+            print(self.embedder._history)
+            fig, ax = plt.subplots()
+            ax.plot(self.embedder._history['loss'])
+            ax.set_ylabel('Cross Entropy')
+            ax.set_xlabel('Epoch')
+            ax.set_title('Training Loss')
+            plt.show()
+
+    def load_encoder(self):
+        return load_ParametricUMAP(self.save_path)  # embedder.encoder로 사용할 것
+
+    # s3 관련 함수
+    def load_and_process_s3_path(self, file_path_tensor: tf.Tensor) -> tf.Tensor:
+        file_path = file_path_tensor.numpy().decode('utf-8')
+
+    def wrapped_loader(self, path):
+        return tf.py_function(
+            self.load_and_process_s3_path,
+            inp=[path],
+            Tout=tf.float32
+        )
+
+    def _list_s3_subdirs(self, prefix):
+        paginator = self.s3_client.get_paginator('list_objects_v2')
+        result = paginator.paginate(
+            Bucket=self.s3_bucket,
+            Prefix=prefix,
+            Delimiter='/')
+        return [p.get('Prefix')
+                for page in result for p in page.get('CommonPrefixes', [])]
+
+    def _get_s3_keypoint_files(self, prefix):
+        paginator = self.s3_client.get_paginator('list_objects_v2')
+        result = paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix)
+        return sorted([f"s3://{self.s3_bucket}/{o.get('Key')}" for page in result for o in page.get(
+            'Contents', []) if o.get('Key').endswith('_keypoints.json')])
+
+    def _upload_model_to_s3(self):
+        local_dir = os.path.expanduser(self.save_path)
+        print(f"Uploading files of {local_dir} to {self.s3_save_path}")
+        parsed_s3_path = urlparse(self.s3_save_path)
+        self.s3_bucket = parsed_s3_path.netloc
+        self.s3_prefix = parsed_s3_path.path.lstrip('/')
+        self.s3_client = boto3.client('s3')
+
+        for root, dirs, files in os.walk(local_dir):
+            for file in files:
+                local_path = os.path.join(root, file)
+                s3_path = os.path.join(
+                    self.s3_prefix, os.path.relpath(
+                        local_path, local_dir))
+
+                try:
+                    self.s3_client.upload_file(
+                        local_path, self.s3_bucket, s3_path)
+                    print(
+                        f"Uploaded {local_path} to s3://{self.s3_bucket}/{s3_path}")
+
+                except Exception as e:
+                    print(
+                        f"Error uploading {local_path} to s3://{self.s3_bucket}/{s3_path}: {e}")
+
+    @staticmethod
+    def setting_in_colab():
+        global label_map, MAX_LEN, BATCH_SIZE, POINT_LANDMARKS, DIRECTIONS, NECK, LEN_LANDMARKS, VALIDATION_SPLIT
+        label_map = {
+            "NIA_SL_SEN0181": "도움받다",
+            "NIA_SL_SEN0354": "안녕하세요",
+            "NIA_SL_SEN0355": "감사합니다",
+            "NIA_SL_SEN0356": "미안합니다",
+            "NIA_SL_SEN2000": "수고"
+        }
+        MAX_LEN = 125
+        BATCH_SIZE = 16
+        POSE = [
+            # 0,   # Nose
+            1,   # Neck (normalization reference)
+            2,   # RShoulder
+            3,   # RElbow
+            4,   # RWrist
+            5,   # LShoulder
+            6,   # LElbow
+            7,   # LWrist
+            # 15,  # REye
+            # 16,  # LEye
+            # 17,  # REar
+            # 18   # LEar
+        ]
+        NECK = 1
+        # 왼손 (95-115): 21개 포인트
+        LHAND = list(range(95, 116))
+
+        # 오른손 (116-136): 21개 포인트
+        RHAND = list(range(116, 137))
+
+        POINT_LANDMARKS = (
+                POSE +
+                LHAND +
+                RHAND
+        )
+        DIRECTIONS = ['D', 'F', 'L', 'R', 'U']
+
+        LEN_LANDMARKS = len(POINT_LANDMARKS)
+
+        VALIDATION_SPLIT = 0.2
+
+
+if __name__ == "__main__":
+    S3_DATA_PATH = 's3://openpose-keypoints'
+    LOCAL_SAVE_PATH = '~/umap'
+    S3_SAVE_PATH = 's3://trout-model/umap_models'
+    dr = DataDimensionReducer(
+        data_path=S3_DATA_PATH,
+        save_path=LOCAL_SAVE_PATH,
+        s3_save_path=S3_SAVE_PATH)
+    dr.train_reducer()
