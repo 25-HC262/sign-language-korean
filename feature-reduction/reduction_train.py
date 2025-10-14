@@ -14,15 +14,14 @@ from umap.parametric_umap import ParametricUMAP
 from umap.parametric_umap import load_ParametricUMAP
 from tensorflow.keras.callbacks import EarlyStopping
 from tqdm import tqdm
-
+from wandb.keras import WandbCallback
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 class DataDimensionReducer:
     def __init__(self, data_path, save_path, s3_save_path) -> None:
         self.setting_in_colab()
         self.data_path = data_path
         self.label_map = label_map
-        self.dims = (LEN_LANDMARKS, 2)  # 49, 2
-        self.n_components = 32
 
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
@@ -32,6 +31,12 @@ class DataDimensionReducer:
             self.s3_bucket = parsed_s3_path.netloc
             self.s3_prefix = parsed_s3_path.path.lstrip('/')
             self.s3_client = boto3.client('s3')
+
+        print("Creating dataset...")
+        self.train_dataset, self.test_dataset = self.create_dataset()
+
+        self.dims = (LEN_LANDMARKS*2, )  # 49*2
+        self.n_components = 32
 
         print("Constructing encoder...")
         self.encoder = tf.keras.Sequential([
@@ -66,8 +71,9 @@ class DataDimensionReducer:
             tf.keras.layers.Reshape(target_shape=self.dims)
         ])
 
-        print("Creating dataset...")
-        self.train_dataset, self.test_dataset = self.create_dataset()
+        # callbacks = [
+        #
+        # ]
 
         print("Constructing embedder...")
         self.embedder = ParametricUMAP(
@@ -85,7 +91,8 @@ class DataDimensionReducer:
         self.save_path = os.path.expanduser(save_path)  # f"{base_path}/졸업프로젝트"
         self.s3_save_path = s3_save_path
 
-    def create_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
+    # sampling_ratio 값도 외부에서 조종 가능하도록 하게 하기.
+    def create_dataset(self, sampling_ratio=0.05) -> Tuple[np.ndarray, np.ndarray]:
         print(f"\nStarting data loading from: {self.data_path}")
         all_keypoint_files = []
 
@@ -111,32 +118,36 @@ class DataDimensionReducer:
                     all_keypoint_files.extend(keypoint_files)
 
         total_size = len(all_keypoint_files)
-        validation_size = int(total_size * VALIDATION_SPLIT)
-        random.shuffle(all_keypoint_files)
+        num_samples = int(total_size*sampling_ratio)
+        sampled_files = random.sample(all_keypoint_files, num_samples)
 
-        print(f"\nTotal samples loaded: {total_size}")
+        dataset = tf.data.Dataset.from_tensor_slices(sampled_files)
+        print(f"Loading and processing data from {self.data_path}...")
+        dataset = dataset.map(
+            lambda path: tf.py_function(
+                self.load_and_process_s3_path, inp=[path], Tout=tf.float32
+            ), num_parallel_calls=tf.data.AUTOTUNE)
 
-        full_dataset = tf.data.Dataset.from_tensor_slices(all_keypoint_files)
+        # 여전히 느려서 카나리아 값 말고 나은 리팩터링 방법이 필요
+        print("Checking Canary Nan values in dataset...")
+        dataset = dataset.filter(lambda x: not tf.math.is_nan(x[0, 0]))
 
-        val_paths_ds = full_dataset.take(validation_size)
-        train_paths_ds = full_dataset.skip(validation_size)
+        dataset = dataset.map(lambda x: tf.reshape(x, [-1]))
 
-        train_dataset = train_paths_ds.map(self.wrapped_loader, num_parallel_calls=tf.data.AUTOTUNE)
-        validation_dataset = val_paths_ds.map(self.wrapped_loader, num_parallel_calls=tf.data.AUTOTUNE)
+        numpy_dataset = np.array([item.numpy() for item in dataset])
 
-        # 데이터셋 후처리 (배치, 프리페치 등)
-        train_dataset = train_dataset.batch(BATCH_SIZE, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
-        validation_dataset = validation_dataset.batch(BATCH_SIZE, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
+        validation_size = max(1, int(len(numpy_dataset) * VALIDATION_SPLIT)) # 최소 1개
+        print(f"\nTotal samples loaded: {total_size}, Sampled for training: {num_samples}")
+        if validation_size >= len(numpy_dataset):
+            raise ValueError(f"Not enough samples: {len(numpy_dataset)}. Need at least 2.")
+
+        train_dataset = numpy_dataset[:-validation_size]
+        validation_dataset = numpy_dataset[-validation_size:]
+
+        print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
 
         return train_dataset, validation_dataset
 
-    def wrapped_loader(self, path):
-        """create_dataset의 map에서 사용할 wrapper"""
-        return tf.py_function(
-            self.load_and_process_s3_path,
-            inp=[path],
-            Tout=tf.float32
-        )
     def json_to_numpy(self, data: Dict[str, Any]) -> np.ndarray:
         person = data
         # Extract pose keypoints (25 points, 3 values each)
@@ -150,13 +161,11 @@ class DataDimensionReducer:
         # Extract hand keypoints (21 points each)
         left_hand_kp = np.array(person.get(
             'hand_left_keypoints_2d', [])).reshape(-1, 3)
-        assert left_hand_kp.shape[
-                   0] == 21, f"left hand keypoint shape differs: {left_hand_kp.shape[0]}"
+        assert left_hand_kp.shape[0] == 21, f"left hand keypoint shape differs: {left_hand_kp.shape[0]}"
 
         right_hand_kp = np.array(person.get(
             'hand_right_keypoints_2d', [])).reshape(-1, 3)
-        assert right_hand_kp.shape[
-                   0] == 21, f"right hand keypoint shape differs: {right_hand_kp.shape[0]}"
+        assert right_hand_kp.shape[0] == 21, f"right hand keypoint shape differs: {right_hand_kp.shape[0]}"
 
         # Take x, y coordinates and confidence scores
         pose_xy = pose_kp[:, :2]
@@ -237,42 +246,52 @@ class DataDimensionReducer:
         return selected_keypoints.astype(np.float32)
 
     def train_reducer(self):
+        # wandb.init(
+        #     project="grad-umap-project",
+        #     name="landmark-reducer-v1",
+        #     config={
+        #         "learning_rate": 0.001,
+        #         "epochs": 100,
+        #         "batch_size": 64
+        #     }
+        # )
         print("Converting tensorflow dataset to numpy array for UMAP fitting...")
         self.embedder.fit(self.train_dataset)
         print("Saving embedder model...")
+        Path(self.save_path).mkdir(parents=True, exist_ok=True)
         self.embedder.save(self.save_path)
 
         # 임베딩 결과 확인
         print("Transforming data for visualization...")
-        embedding_list = [self.embedder.transform(batch) for batch in self.train_dataset]
-        embedding = np.concatenate(embedding_list, axis=0)
+        embedding = self.embedder.transform(self.train_dataset)
         print(f"Embedding shape: {embedding.shape}")
 
         # pickle을 통해서 embedding 객체 저장하기
         embedding_file_path = os.path.join(self.save_path, "embedding.pkl")
-        Path(embedding_file_path).parent.mkdir(parents=True, exist_ok=True)
         with open(embedding_file_path, 'wb') as ef:
             pickle.dump(embedding, ef)
+        print(f"Saved embedding to {embedding_file_path}")
 
-        if not self.is_s3:
-            try:
-                # embedding plot으로 그리기
+        # 히스토리 출력
+        if hasattr(self.embedder, '_history'):
+            print("\n=== Training History ===")
+            for key, values in self.embedder._history.items():
+                print(f"{key}: last value = {values[-1]:.4f}")
 
-                # 히스토리 보여주기
-                if hasattr(self.embedder, '_history'):
-                    print(self.embedder._history)
+            if not self.is_s3:
+                try:
                     fig, ax = plt.subplots()
                     ax.plot(self.embedder._history['loss'])
-                    ax.set_ylabel('Cross Entropy')
+                    ax.set_ylabel('Loss')
                     ax.set_xlabel('Epoch')
                     ax.set_title('Training Loss')
+                    plt.savefig(os.path.join(self.save_path, 'training_loss.png'))
                     plt.show()
-            except tf.errors.OutOfRangeError:
-                print("Finished transforming all data.")
-            except Exception as e:
-                print(f"An error occurred during transformation: {e}")
+                except Exception as e:
+                    print(f"Error plotting history: {e}")
 
         self._upload_model_to_s3()
+        # wandb.finish()
 
     def load_encoder(self):
         return load_ParametricUMAP(self.save_path)  # embedder.encoder로 사용할 것
@@ -301,8 +320,11 @@ class DataDimensionReducer:
 
             return self.json_to_numpy(person)
         except Exception as e:
-            print(f"Skipping {file_path}: {e}")
-            return None
+            print(f"Error processing {file_path_tensor.numpy().decode('utf-8')}: {e}")
+            # 카나리아 값을 포함한 에러 배열 생성
+            error_array = np.zeros((LEN_LANDMARKS, 2), dtype=np.float32)
+            error_array[0, 0] = np.nan  # (0, 0) 위치에만 NaN 설정
+            return error_array
 
     def _list_s3_subdirs(self, prefix):
         paginator = self.s3_client.get_paginator('list_objects_v2')
