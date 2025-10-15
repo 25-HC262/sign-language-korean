@@ -14,7 +14,8 @@ from umap.parametric_umap import ParametricUMAP
 from umap.parametric_umap import load_ParametricUMAP
 from tensorflow.keras.callbacks import EarlyStopping
 from tqdm import tqdm
-from wandb.keras import WandbCallback
+import wandb
+from wandb.integration.keras import WandbMetricsLogger
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 class DataDimensionReducer:
@@ -25,12 +26,14 @@ class DataDimensionReducer:
 
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
-
         if self.is_s3:
             parsed_s3_path = urlparse(data_path)
             self.s3_bucket = parsed_s3_path.netloc
             self.s3_prefix = parsed_s3_path.path.lstrip('/')
             self.s3_client = boto3.client('s3')
+        self.save_path = os.path.expanduser(save_path)  # f"{base_path}/졸업프로젝트"
+        self.s3_save_path = s3_save_path
+        self.checkpoint_filepath = os.path.join(self.save_path, 'best_model.weights.h5')
 
         print("Creating dataset...")
         self.train_dataset, self.test_dataset = self.create_dataset()
@@ -71,9 +74,28 @@ class DataDimensionReducer:
             tf.keras.layers.Reshape(target_shape=self.dims)
         ])
 
-        # callbacks = [
-        #
-        # ]
+        wandb.init(
+            project="grad-umap-project",
+            name="landmark-reducer-v1",
+            config={
+                "learning_rate": 0.001,
+                "epochs": 952,
+                "batch_size": 1024 # 변수화 하는 게 좋을 듯
+            }
+        )
+
+        callbacks = [
+            EarlyStopping(monitor='val_loss', patience=10, verbose=1), # 10번 동안 개선 안되면 학습 조기 중단
+            ModelCheckpoint(
+                filepath=self.checkpoint_filepath,
+                save_weights_only=True, # 가중치만 저장
+                monitor='val_loss',
+                mode='min',
+                save_best_only=True,
+                verbose=1
+            ),
+            WandbMetricsLogger()
+        ]
 
         print("Constructing embedder...")
         self.embedder = ParametricUMAP(
@@ -81,15 +103,17 @@ class DataDimensionReducer:
             decoder=self.decoder,
             dims=self.dims,
             n_components=self.n_components,
-            parametric_reconstruction=True,
-            # umap loss & reconstruction loss 모두 반영
+            parametric_reconstruction=True, # umap loss & reconstruction loss 모두 반영
+
+            parametric_reconstruction_loss_fcn=tf.keras.losses.MeanSquaredError(), # default: Cross Entropy (범위 0~1) 에서 MSE (범위 -1~1)로 변경
+
             reconstruction_validation=self.test_dataset,
             autoencoder_loss=True,
-            verbose=True
-        )
 
-        self.save_path = os.path.expanduser(save_path)  # f"{base_path}/졸업프로젝트"
-        self.s3_save_path = s3_save_path
+            batch_size=1024,
+            verbose=True,
+            keras_fit_kwargs={'callbacks': callbacks}
+        )
 
     # sampling_ratio 값도 외부에서 조종 가능하도록 하게 하기.
     def create_dataset(self, sampling_ratio=0.05) -> Tuple[np.ndarray, np.ndarray]:
@@ -128,16 +152,13 @@ class DataDimensionReducer:
                 self.load_and_process_s3_path, inp=[path], Tout=tf.float32
             ), num_parallel_calls=tf.data.AUTOTUNE)
 
-        # 여전히 느려서 카나리아 값 말고 나은 리팩터링 방법이 필요
-        print("Checking Canary Nan values in dataset...")
-        dataset = dataset.filter(lambda x: not tf.math.is_nan(x[0, 0]))
-
         dataset = dataset.map(lambda x: tf.reshape(x, [-1]))
 
         numpy_dataset = np.array([item.numpy() for item in dataset])
-
         validation_size = max(1, int(len(numpy_dataset) * VALIDATION_SPLIT)) # 최소 1개
+
         print(f"\nTotal samples loaded: {total_size}, Sampled for training: {num_samples}")
+
         if validation_size >= len(numpy_dataset):
             raise ValueError(f"Not enough samples: {len(numpy_dataset)}. Need at least 2.")
 
@@ -246,15 +267,6 @@ class DataDimensionReducer:
         return selected_keypoints.astype(np.float32)
 
     def train_reducer(self):
-        # wandb.init(
-        #     project="grad-umap-project",
-        #     name="landmark-reducer-v1",
-        #     config={
-        #         "learning_rate": 0.001,
-        #         "epochs": 100,
-        #         "batch_size": 64
-        #     }
-        # )
         print("Converting tensorflow dataset to numpy array for UMAP fitting...")
         self.embedder.fit(self.train_dataset)
         print("Saving embedder model...")
@@ -291,7 +303,7 @@ class DataDimensionReducer:
                     print(f"Error plotting history: {e}")
 
         self._upload_model_to_s3()
-        # wandb.finish()
+        wandb.finish()
 
     def load_encoder(self):
         return load_ParametricUMAP(self.save_path)  # embedder.encoder로 사용할 것
@@ -320,11 +332,7 @@ class DataDimensionReducer:
 
             return self.json_to_numpy(person)
         except Exception as e:
-            print(f"Error processing {file_path_tensor.numpy().decode('utf-8')}: {e}")
-            # 카나리아 값을 포함한 에러 배열 생성
-            error_array = np.zeros((LEN_LANDMARKS, 2), dtype=np.float32)
-            error_array[0, 0] = np.nan  # (0, 0) 위치에만 NaN 설정
-            return error_array
+            raise ValueError(f"Error processing {file_path_tensor.numpy().decode('utf-8')}: {e}")
 
     def _list_s3_subdirs(self, prefix):
         paginator = self.s3_client.get_paginator('list_objects_v2')
