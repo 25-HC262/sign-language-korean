@@ -17,9 +17,10 @@ from tqdm import tqdm
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from collections import defaultdict
 
 class DataDimensionReducer:
-    def __init__(self, data_path, save_path, s3_save_path, sampling_ratio=0.05) -> None:
+    def __init__(self, data_path, save_path, s3_save_path, samples_per_class=1000) -> None:
         self.setting_in_colab()
         self.data_path = data_path
         self.label_map = label_map
@@ -35,7 +36,7 @@ class DataDimensionReducer:
         self.s3_save_path = s3_save_path
         self.checkpoint_filepath = os.path.join(self.save_path, 'best_model.weights.h5')
 
-        self.sampling_ratio = sampling_ratio
+        self.samples_per_class = samples_per_class
         print("Creating dataset...")
         self.train_dataset, self.test_dataset = self.create_dataset()
 
@@ -116,12 +117,12 @@ class DataDimensionReducer:
             keras_fit_kwargs={'callbacks': callbacks}
         )
 
-    # sampling_ratio 값도 외부에서 조종 가능하도록 하게 하기.
     def create_dataset(self) -> Tuple[np.ndarray, np.ndarray]:
         print(f"\nStarting data loading from: {self.data_path}")
-        all_keypoint_files = []
+        files_by_class = defaultdict(list)
 
         for folder_name, folder_meaning in self.label_map.items():
+            class_label = folder_meaning
             for direction in DIRECTIONS:
                 if self.is_s3:
                     direction_prefix = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
@@ -140,11 +141,21 @@ class DataDimensionReducer:
                         if not os.path.isdir(person_path):
                             continue
                         keypoint_files = sorted(glob.glob(os.path.join(person_path,"*_keypoints.json")))
-                    all_keypoint_files.extend(keypoint_files)
+                    files_by_class[class_label].extend(keypoint_files)
 
-        total_size = len(all_keypoint_files)
-        num_samples = int(total_size*self.sampling_ratio)
-        sampled_files = random.sample(all_keypoint_files, num_samples)
+        sampled_files = []
+        print("\n--- Stratified Sampling ---")
+        for class_label, file_list in files_by_class.items():
+            num_files = len(file_list)
+            num_to_sample = min(self.samples_per_class, num_files)
+            print(f"Class: '{class_label}': Found {num_files}")
+            sampled_files.extend(random.sample(file_list, num_to_sample))
+
+        print("---------------------------\n")
+
+        random.shuffle(sampled_files)
+        num_samples = len(sampled_files)
+        print(f"Total files sampled across all classes: {num_samples}")
 
         dataset = tf.data.Dataset.from_tensor_slices(sampled_files)
         print(f"Loading and processing data from {self.data_path}...")
@@ -156,9 +167,8 @@ class DataDimensionReducer:
         dataset = dataset.map(lambda x: tf.reshape(x, [-1]))
 
         numpy_dataset = np.array([item.numpy() for item in tqdm(dataset, total=num_samples, desc="Processing Dataset")])
-        validation_size = max(1, int(len(numpy_dataset) * VALIDATION_SPLIT)) # 최소 1개
 
-        print(f"\nTotal samples loaded: {total_size}, Sampled for training: {num_samples}")
+        validation_size = max(1, int(len(numpy_dataset) * VALIDATION_SPLIT)) # 최소 1개
 
         if validation_size >= len(numpy_dataset):
             raise ValueError(f"Not enough samples: {len(numpy_dataset)}. Need at least 2.")
@@ -426,5 +436,5 @@ if __name__ == "__main__":
         data_path=S3_DATA_PATH,
         save_path=LOCAL_SAVE_PATH,
         s3_save_path=S3_SAVE_PATH,
-        sampling_ratio=0.15)
+        samples_per_class=620)
     dr.train_reducer()
