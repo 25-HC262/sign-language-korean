@@ -1,6 +1,7 @@
 import os
 import json
 import numpy as np
+from typing import Optional, List, Dict, Any
 import tensorflow as tf
 import glob
 
@@ -77,8 +78,15 @@ class KSLDataLoader:
 
         print(f"\nTotal samples loaded: {len(self.samples)}")
 
-    def generate_sequence(self, keypoint_files):
-        """사람 폴더 내의 키포인트 파일들을 묶어 하나의 영상 sequence로 구성"""
+    def generate_sequence(self, keypoint_files: List[str]) -> Optional[np.ndarray]:
+        """
+        Args:
+          keypoint_files (List[str]) : keypoint json file path list
+        Returns:
+          Optional[np.ndarray]:
+                if sequence generate success, numpy array (N x 98 x 3) of keypoints in a single video
+                not None
+        """
         sequence = []
 
         for file_path in keypoint_files:

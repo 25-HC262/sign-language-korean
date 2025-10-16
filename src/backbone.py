@@ -1,6 +1,6 @@
 # src/backbone.py
 from .utils import Preprocess
-from .config import MAX_LEN, CHANNELS
+from .config import MAX_LEN, CHANNELS, PAD
 import tensorflow as tf
 
 
