@@ -19,7 +19,7 @@ from wandb.integration.keras import WandbMetricsLogger
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 class DataDimensionReducer:
-    def __init__(self, data_path, save_path, s3_save_path) -> None:
+    def __init__(self, data_path, save_path, s3_save_path, sampling_ratio=0.05) -> None:
         self.setting_in_colab()
         self.data_path = data_path
         self.label_map = label_map
@@ -35,6 +35,7 @@ class DataDimensionReducer:
         self.s3_save_path = s3_save_path
         self.checkpoint_filepath = os.path.join(self.save_path, 'best_model.weights.h5')
 
+        self.sampling_ratio = sampling_ratio
         print("Creating dataset...")
         self.train_dataset, self.test_dataset = self.create_dataset()
 
@@ -46,29 +47,29 @@ class DataDimensionReducer:
             tf.keras.layers.InputLayer(input_shape=self.dims),
             tf.keras.layers.Flatten(),
 
-            tf.keras.layers.Dense(units=512, activation='relu'),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.3),
+            # tf.keras.layers.Dense(units=512, activation='relu'),
+            # tf.keras.layers.BatchNormalization(),
+            # tf.keras.layers.Dropout(0.3),
 
-            tf.keras.layers.Dense(units=256, activation='relu'),
+            tf.keras.layers.Dense(units=256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
             tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dropout(0.5),
 
-            tf.keras.layers.Dense(units=128, activation='relu'),
+            tf.keras.layers.Dense(units=128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
             tf.keras.layers.Dense(units=self.n_components)
         ])
         print("Constructing decoder....")
         self.decoder = tf.keras.Sequential([
             tf.keras.layers.InputLayer(input_shape=(self.n_components,)),
-            tf.keras.layers.Dense(units=128, activation="relu"),
+            tf.keras.layers.Dense(units=128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(0.001)),
 
-            tf.keras.layers.Dense(units=256, activation="relu"),
+            tf.keras.layers.Dense(units=256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(0.001)),
             tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dropout(0.5),
 
-            tf.keras.layers.Dense(units=512, activation='relu'),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.3),
+            # tf.keras.layers.Dense(units=512, activation='relu'),
+            # tf.keras.layers.BatchNormalization(),
+            # tf.keras.layers.Dropout(0.3),
 
             tf.keras.layers.Dense(units=LEN_LANDMARKS * 2, activation='linear'),
             tf.keras.layers.Reshape(target_shape=self.dims)
@@ -79,13 +80,13 @@ class DataDimensionReducer:
             name="landmark-reducer-v1",
             config={
                 "learning_rate": 0.001,
-                "epochs": 952,
+                "epochs": 10,
                 "batch_size": 1024 # 변수화 하는 게 좋을 듯
             }
         )
 
         callbacks = [
-            EarlyStopping(monitor='val_loss', patience=10, verbose=1), # 10번 동안 개선 안되면 학습 조기 중단
+            EarlyStopping(monitor='val_loss', patience=10, verbose=1), # {patience}번 동안 개선 안되면 학습 조기 중단
             ModelCheckpoint(
                 filepath=self.checkpoint_filepath,
                 save_weights_only=True, # 가중치만 저장
@@ -116,7 +117,7 @@ class DataDimensionReducer:
         )
 
     # sampling_ratio 값도 외부에서 조종 가능하도록 하게 하기.
-    def create_dataset(self, sampling_ratio=0.05) -> Tuple[np.ndarray, np.ndarray]:
+    def create_dataset(self) -> Tuple[np.ndarray, np.ndarray]:
         print(f"\nStarting data loading from: {self.data_path}")
         all_keypoint_files = []
 
@@ -142,7 +143,7 @@ class DataDimensionReducer:
                     all_keypoint_files.extend(keypoint_files)
 
         total_size = len(all_keypoint_files)
-        num_samples = int(total_size*sampling_ratio)
+        num_samples = int(total_size*self.sampling_ratio)
         sampled_files = random.sample(all_keypoint_files, num_samples)
 
         dataset = tf.data.Dataset.from_tensor_slices(sampled_files)
@@ -154,7 +155,7 @@ class DataDimensionReducer:
 
         dataset = dataset.map(lambda x: tf.reshape(x, [-1]))
 
-        numpy_dataset = np.array([item.numpy() for item in dataset])
+        numpy_dataset = np.array([item.numpy() for item in tqdm(dataset, total=num_samples, desc="Processing Dataset")])
         validation_size = max(1, int(len(numpy_dataset) * VALIDATION_SPLIT)) # 최소 1개
 
         print(f"\nTotal samples loaded: {total_size}, Sampled for training: {num_samples}")
@@ -424,5 +425,6 @@ if __name__ == "__main__":
     dr = DataDimensionReducer(
         data_path=S3_DATA_PATH,
         save_path=LOCAL_SAVE_PATH,
-        s3_save_path=S3_SAVE_PATH)
+        s3_save_path=S3_SAVE_PATH,
+        sampling_ratio=0.15)
     dr.train_reducer()
