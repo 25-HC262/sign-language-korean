@@ -2,7 +2,7 @@ import numpy as np
 import json
 
 # Model parameters
-THRESH_HOLD = 0.5
+THRESHOLD = 0.5
 SEQ_LEN = 60
 ROWS_PER_FRAME = 137
 MAX_LEN = 125
@@ -167,6 +167,8 @@ KSL_VAL_PATH = "data/val"
 S3_DATA_PATH = 's3://openpose-keypoints'
 LOCAL_UMAP_SAVE_PATH = '~/store_umap'
 S3_UMAP_MODEL_PATH = 's3://trout-model/umap_models'
+
+GLOSS_TRANSFORMER_MODEL_PATH = 'models/gloss_transformer_models/sign_language_v1.h5'
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 try:

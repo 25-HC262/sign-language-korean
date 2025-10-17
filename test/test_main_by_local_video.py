@@ -23,7 +23,8 @@ import csv
 
 # Import custom modules
 from src.backbone import get_model, CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESH_HOLD, MAX_LEN, POINT_LANDMARKS, KSL_SENTENCES
+from src.config import SEQ_LEN, THRESHOLD, MAX_LEN, POINT_LANDMARKS, KSL_SENTENCES
+from main import mediapipe_to_openpose_keypoints, mediapipe_hands_to_openpose_format
 
 # MediaPipe setup
 mp_holistic = mp.solutions.holistic
@@ -69,100 +70,80 @@ def put_korean_text(image, text, position, font_size=30, color=(255, 255, 255)):
     # Convert back to OpenCV format
     return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
-
-def mediapipe_hands_to_openpose_format(mp_hand_landmarks, image_width, image_height):
-    """
-    Convert MediaPipe hand landmarks directly to OpenPose format
-    Both use 21 keypoints, so mapping is straightforward
-    """
-    hand_keypoints = np.zeros((21, 3))
-    
-    if mp_hand_landmarks:
-        for i, landmark in enumerate(mp_hand_landmarks.landmark):
-            # Convert normalized coordinates to pixel coordinates
-            hand_keypoints[i] = [
-                landmark.x * image_width,
-                landmark.y * image_height,
-                1.0  # MediaPipe doesn't provide confidence for hands, so we use 1.0
-            ]
-    
-    return hand_keypoints
-
-
-def mediapipe_to_openpose_keypoints(results, image_width, image_height):
-    """
-    Convert MediaPipe results to OpenPose format (137 keypoints)
-    Upper body focused with enhanced arm tracking
-    """
-    # Initialize arrays with zeros
-    pose = np.zeros((25, 3))
-    face = np.zeros((70, 3))
-    left_hand = np.zeros((21, 3))
-    right_hand = np.zeros((21, 3))
-    
-    # Convert normalized coordinates to pixel coordinates
-    def to_pixel_coords(landmark):
-        return [
-            landmark.x * image_width,
-            landmark.y * image_height,
-            landmark.visibility if hasattr(landmark, 'visibility') else 1.0
-        ]
-    
-    # Extract pose landmarks with enhanced arm tracking
-    if results.pose_landmarks:
-        mp_pose = results.pose_landmarks.landmark
-        
-        # 상반신 키포인트 추출 (팔 관련 포인트 강조)
-        pose[0] = to_pixel_coords(mp_pose[0])     # Nose
-        pose[1] = [(to_pixel_coords(mp_pose[11])[0] + to_pixel_coords(mp_pose[12])[0]) / 2,
-                   (to_pixel_coords(mp_pose[11])[1] + to_pixel_coords(mp_pose[12])[1]) / 2, 1.0]  # Neck
-        
-        # 오른팔 관련 키포인트
-        pose[2] = to_pixel_coords(mp_pose[12])    # Right shoulder
-        pose[3] = to_pixel_coords(mp_pose[14])    # Right elbow
-        pose[4] = to_pixel_coords(mp_pose[16])    # Right wrist
-        
-        # 왼팔 관련 키포인트
-        pose[5] = to_pixel_coords(mp_pose[11])    # Left shoulder
-        pose[6] = to_pixel_coords(mp_pose[13])    # Left elbow
-        pose[7] = to_pixel_coords(mp_pose[15])    # Left wrist
-        
-        # 추가 상반신 포인트들
-        pose[8] = [(to_pixel_coords(mp_pose[23])[0] + to_pixel_coords(mp_pose[24])[0]) / 2,
-                   (to_pixel_coords(mp_pose[23])[1] + to_pixel_coords(mp_pose[24])[1]) / 2, 
-                   min(mp_pose[23].visibility, mp_pose[24].visibility)]  # Mid hip
-        
-        # 얼굴 관련 포인트
-        pose[15] = to_pixel_coords(mp_pose[2])    # Right eye
-        pose[16] = to_pixel_coords(mp_pose[5])    # Left eye
-        pose[17] = to_pixel_coords(mp_pose[8])    # Right ear
-        pose[18] = to_pixel_coords(mp_pose[7])    # Left ear
-        
-        # 손가락 끝 포인트
-        if hasattr(mp_pose[19], 'visibility'):
-            pose[20] = to_pixel_coords(mp_pose[19])
-        if hasattr(mp_pose[20], 'visibility'):
-            pose[21] = to_pixel_coords(mp_pose[20])
-    
-    # Extract face landmarks
-    if results.face_landmarks:
-        mp_face = results.face_landmarks.landmark
-        indices = np.linspace(0, 467, 70, dtype=int)
-        for i, idx in enumerate(indices):
-            face[i] = to_pixel_coords(mp_face[idx])
-    
-    # Extract hand landmarks
-    left_hand = mediapipe_hands_to_openpose_format(
-        results.left_hand_landmarks, image_width, image_height
-    )
-    right_hand = mediapipe_hands_to_openpose_format(
-        results.right_hand_landmarks, image_width, image_height
-    )
-    
-    # Concatenate all keypoints
-    all_keypoints = np.concatenate([pose, face, left_hand, right_hand], axis=0)
-    
-    return all_keypoints
+# def mediapipe_to_openpose_keypoints(results, image_width, image_height):
+#     """
+#     Convert MediaPipe results to OpenPose format (137 keypoints)
+#     Upper body focused with enhanced arm tracking
+#     """
+#     # Initialize arrays with zeros
+#     pose = np.zeros((25, 3))
+#     face = np.zeros((70, 3))
+#     left_hand = np.zeros((21, 3))
+#     right_hand = np.zeros((21, 3))
+#
+#     # Convert normalized coordinates to pixel coordinates
+#     def to_pixel_coords(landmark):
+#         return [
+#             landmark.x * image_width,
+#             landmark.y * image_height,
+#             landmark.visibility if hasattr(landmark, 'visibility') else 1.0
+#         ]
+#
+#     # Extract pose landmarks with enhanced arm tracking
+#     if results.pose_landmarks:
+#         mp_pose = results.pose_landmarks.landmark
+#
+#         # 상반신 키포인트 추출 (팔 관련 포인트 강조)
+#         pose[0] = to_pixel_coords(mp_pose[0])     # Nose
+#         pose[1] = [(to_pixel_coords(mp_pose[11])[0] + to_pixel_coords(mp_pose[12])[0]) / 2,
+#                    (to_pixel_coords(mp_pose[11])[1] + to_pixel_coords(mp_pose[12])[1]) / 2, 1.0]  # Neck
+#
+#         # 오른팔 관련 키포인트
+#         pose[2] = to_pixel_coords(mp_pose[12])    # Right shoulder
+#         pose[3] = to_pixel_coords(mp_pose[14])    # Right elbow
+#         pose[4] = to_pixel_coords(mp_pose[16])    # Right wrist
+#
+#         # 왼팔 관련 키포인트
+#         pose[5] = to_pixel_coords(mp_pose[11])    # Left shoulder
+#         pose[6] = to_pixel_coords(mp_pose[13])    # Left elbow
+#         pose[7] = to_pixel_coords(mp_pose[15])    # Left wrist
+#
+#         # 추가 상반신 포인트들
+#         pose[8] = [(to_pixel_coords(mp_pose[23])[0] + to_pixel_coords(mp_pose[24])[0]) / 2,
+#                    (to_pixel_coords(mp_pose[23])[1] + to_pixel_coords(mp_pose[24])[1]) / 2,
+#                    min(mp_pose[23].visibility, mp_pose[24].visibility)]  # Mid hip
+#
+#         # 얼굴 관련 포인트
+#         pose[15] = to_pixel_coords(mp_pose[2])    # Right eye
+#         pose[16] = to_pixel_coords(mp_pose[5])    # Left eye
+#         pose[17] = to_pixel_coords(mp_pose[8])    # Right ear
+#         pose[18] = to_pixel_coords(mp_pose[7])    # Left ear
+#
+#         # 손가락 끝 포인트
+#         if hasattr(mp_pose[19], 'visibility'):
+#             pose[20] = to_pixel_coords(mp_pose[19])
+#         if hasattr(mp_pose[20], 'visibility'):
+#             pose[21] = to_pixel_coords(mp_pose[20])
+#
+#     # Extract face landmarks
+#     if results.face_landmarks:
+#         mp_face = results.face_landmarks.landmark
+#         indices = np.linspace(0, 467, 70, dtype=int)
+#         for i, idx in enumerate(indices):
+#             face[i] = to_pixel_coords(mp_face[idx])
+#
+#     # Extract hand landmarks
+#     left_hand = mediapipe_hands_to_openpose_format(
+#         results.left_hand_landmarks, image_width, image_height
+#     )
+#     right_hand = mediapipe_hands_to_openpose_format(
+#         results.right_hand_landmarks, image_width, image_height
+#     )
+#
+#     # Concatenate all keypoints
+#     all_keypoints = np.concatenate([pose, face, left_hand, right_hand], axis=0)
+#
+#     return all_keypoints
 
 
 def preprocess_sequence(sequence):

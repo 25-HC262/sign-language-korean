@@ -1,8 +1,7 @@
-from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, NECK, VALIDATION_SPLIT
+from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, NECK, VALIDATION_SPLIT, MAX_LEN
 
 from urllib.parse import urlparse
 import os, boto3, json, glob, random
-import pickle
 from typing import Optional, List, Dict, Any, Tuple
 from collections import defaultdict
 import tensorflow as tf
@@ -88,7 +87,7 @@ class TrainDataLoader:
 
         return train_dataset, validation_dataset
 
-    def json_to_numpy(self, data: Dict[str, Any]) -> np.ndarray:
+    def _json_to_numpy(self, data: Dict[str, Any]) -> np.ndarray:
         person = data
         # Extract pose keypoints (25 points, 3 values each)
         pose_kp = np.array(person.get('pose_keypoints_2d', [])).reshape(-1, 3)
@@ -167,7 +166,7 @@ class TrainDataLoader:
             right_hand_xy
         ], axis=0)
 
-        # Extract selected landmarks
+        # 선택된 키포인트 추출
         selected_keypoints = all_keypoints[POINT_LANDMARKS, :]
 
         # 목 기준 정규화
@@ -183,8 +182,8 @@ class TrainDataLoader:
         selected_keypoints = np.nan_to_num(selected_keypoints, 0)
 
         return selected_keypoints.astype(np.float32) # (98, 2)
-        # s3 관련 함수
-    def load_and_process_s3_path(self, file_path_tensor: tf.Tensor) -> tf.Tensor:
+
+    def load_and_process_s3_path(self, file_path_tensor: tf.Tensor) -> np.ndarray:
         file_path = file_path_tensor.numpy().decode('utf-8')
         try:
             if file_path.startswith('s3://'):
@@ -205,7 +204,7 @@ class TrainDataLoader:
             person = people_data
             assert len(people_data) != 0, "데이터 길이 0"
 
-            return self.json_to_numpy(person)
+            return self._json_to_numpy(person)
         except Exception as e:
             raise ValueError(f"Error processing {file_path_tensor.numpy().decode('utf-8')}: {e}")
 
@@ -259,3 +258,50 @@ class TrainDataLoader:
                 print(f"  Uploaded {local_file_path} to s3://{save_bucket}/{s3_key}")
             except Exception as e:
                 print(f"  Error uploading {local_file_path}: {e}")
+
+# 전처리 및 키포인트 변환 함수
+def mediapipe_hands_to_openpose_format(mp_hand_landmarks, image_width, image_height):
+    hand_keypoints = np.zeros((21, 3))
+    if mp_hand_landmarks:
+        for i, landmark in enumerate(mp_hand_landmarks.landmark):
+            hand_keypoints[i] = [landmark.x * image_width, landmark.y * image_height, 1.0]
+    return hand_keypoints
+
+def mediapipe_to_openpose_keypoints(results, image_width, image_height):
+    pose = np.zeros((25, 3)); face = np.zeros((70, 3))
+    left_hand = np.zeros((21, 3)); right_hand = np.zeros((21, 3))
+    def to_pixel_coords(landmark):
+        return [landmark.x * image_width, landmark.y * image_height, landmark.visibility if hasattr(landmark, 'visibility') else 1.0]
+    if results.pose_landmarks:
+        mp_pose = results.pose_landmarks.landmark
+        pose[0] = to_pixel_coords(mp_pose[0]) # Nose
+        pose[1] = [(to_pixel_coords(mp_pose[11])[0] + to_pixel_coords(mp_pose[12])[0]) / 2, (to_pixel_coords(mp_pose[11])[1] + to_pixel_coords(mp_pose[12])[1]) / 2, 1.0] # Neck
+        pose[2] = to_pixel_coords(mp_pose[12]); pose[3] = to_pixel_coords(mp_pose[14]); pose[4] = to_pixel_coords(mp_pose[16]) # Right Arm
+        pose[5] = to_pixel_coords(mp_pose[11]); pose[6] = to_pixel_coords(mp_pose[13]); pose[7] = to_pixel_coords(mp_pose[15]) # Left Arm
+    left_hand = mediapipe_hands_to_openpose_format(results.left_hand_landmarks, image_width, image_height)
+    right_hand = mediapipe_hands_to_openpose_format(results.right_hand_landmarks, image_width, image_height)
+    return np.concatenate([pose, face, left_hand, right_hand], axis=0)
+
+def preprocess_sequence(sequence: np.ndarray) -> np.ndarray:
+    # input frame's'
+    sequence = np.array(sequence)
+    if len(sequence) > MAX_LEN: sequence = sequence[:MAX_LEN]
+    else: sequence = np.concatenate([sequence, np.zeros((MAX_LEN - len(sequence), sequence.shape[1], sequence.shape[2]))], axis=0)
+
+    # [-1, 1] 정규화
+
+    # 선택된 키포인트 추출
+    selected_seq = sequence[:, POINT_LANDMARKS, :]
+
+    # 목 기준 정규화
+    neck_pos = sequence[:, NECK:NECK+1, :]
+    neck_mean = np.nanmean(neck_pos, axis=(0, 1), keepdims=True)
+
+    if np.isnan(neck_mean).any(): neck_mean = np.array([[[0.5, 0.5]]])
+    selected_xy = selected_seq[:, :, :]
+    std = np.nanstd(selected_xy)
+    if std == 0: std = 1.0
+    selected_xy = (selected_xy - neck_mean) / std
+    x_flat = selected_xy.reshape(MAX_LEN, -1)
+    processed = np.nan_to_num(x_flat, 0)
+    return processed
