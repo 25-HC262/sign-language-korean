@@ -11,7 +11,7 @@ from umap.parametric_umap import load_ParametricUMAP
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from src.config import LEN_LANDMARKS, LOCAL_UMAP_SAVE_PATH, S3_DATA_PATH, S3_UMAP_MODEL_PATH
+from src.config import NUM_NODES, LOCAL_UMAP_SAVE_PATH, S3_DATA_PATH, S3_UMAP_MODEL_PATH
 from load_data.create_dataset import TrainDataLoader
 
 class DataDimensionReducer:
@@ -34,7 +34,7 @@ class DataDimensionReducer:
         self.trainer = TrainDataLoader(data_path=data_path, save_path=save_path, s3_save_path=s3_save_path, samples_per_class=samples_per_class)
         self.train_dataset, self.test_dataset = self.trainer.create_dataset()
 
-        self.dims = (LEN_LANDMARKS*2, )  # 49*2
+        self.dims = (NUM_NODES*2, )  # 49*2
         self.n_components = 32
 
         print("Constructing encoder...")
@@ -81,7 +81,7 @@ class DataDimensionReducer:
             # tf.keras.layers.BatchNormalization(),
             # tf.keras.layers.Dropout(0.3),
 
-            tf.keras.layers.Dense(units=LEN_LANDMARKS * 2, activation='linear', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+            tf.keras.layers.Dense(units=NUM_NODES*2, activation='linear', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
             tf.keras.layers.Reshape(target_shape=self.dims)
         ])
 
@@ -172,7 +172,7 @@ class DataDimensionReducer:
                 except Exception as e:
                     print(f"Error plotting history: {e}")
 
-        self.trainer.upload_model_to_s3()
+        self.trainer.upload_file_to_s3(local_root_path=self.save_path, s3_path=self.s3_save_path)
         wandb.finish()
 
 

@@ -152,7 +152,6 @@ POINT_LANDMARKS = (
     LHAND +
     RHAND
 )
-LEN_LANDMARKS = len(POINT_LANDMARKS)
 
 assert all(0 <= idx < 137 for idx in POINT_LANDMARKS), "Invalid landmark indices!"
 assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"

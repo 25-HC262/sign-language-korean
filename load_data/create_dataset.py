@@ -8,6 +8,7 @@ from collections import defaultdict
 import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
+from pathlib import Path
 
 class TrainDataLoader:
     def __init__(self, data_path, save_path=None, s3_save_path=None, samples_per_class=1000):
@@ -214,8 +215,7 @@ class TrainDataLoader:
             Bucket=self.s3_bucket,
             Prefix=prefix,
             Delimiter='/')
-        return [p.get('Prefix')
-                for page in result for p in page.get('CommonPrefixes', [])]
+        return [p.get('Prefix') for page in result for p in page.get('CommonPrefixes', [])]
 
     def _get_s3_keypoint_files(self, prefix):
         paginator = self.s3_client.get_paginator('list_objects_v2')
@@ -223,10 +223,13 @@ class TrainDataLoader:
         return sorted([f"s3://{self.s3_bucket}/{o.get('Key')}" for page in result for o in page.get(
             'Contents', []) if o.get('Key').endswith('_keypoints.json')])
 
-    def upload_model_to_s3(self):
-        local_dir = os.path.expanduser(self.save_path)
-        print(f"Uploading files of {local_dir} to {self.s3_save_path}")
-        parsed_s3_path = urlparse(self.s3_save_path)
+    def upload_file_to_s3(self, local_root_path: str, s3_path: str, file_name: str = None):
+        '''
+        file_name=None인 경우 local_path의 전체 파일 s3 업로드
+        file_name!=None인 경우 개별 파일 s3 업로드
+        '''
+        local_root = Path(local_root_path).expanduser()
+        parsed_s3_path = urlparse(s3_path)
         save_bucket = parsed_s3_path.netloc
         save_prefix = parsed_s3_path.path.lstrip('/')
 
@@ -234,14 +237,25 @@ class TrainDataLoader:
         if not hasattr(self, 's3_client'):
             self.s3_client = boto3.client('s3')
 
-        for root, dirs, files in os.walk(local_dir):
-            for file in files:
-                local_path = os.path.join(root, file)
-                s3_path = os.path.join(save_prefix, os.path.relpath(local_path, local_dir))
+        files_to_upload = []
+        if file_name is None:
+            # 디렉터리 전체 업로드
+            print(f"Preparing to upload directory {local_root} to s3://{save_bucket}/{save_prefix}")
+            for local_path in local_root.rglob('*'):
+                if local_path.is_file():
+                    s3_key = str(save_prefix / local_path.relative_to(local_root))
+                    files_to_upload.append((str(local_path), s3_key))
+        else:
+            # 단일 파일 업로드
+            local_file = local_root/file_name
+            print(f"Preparing to upload file {local_file} to s3://{save_bucket}/{save_prefix}")
+            if local_file.is_file():
+                s3_key = str(save_prefix / local_file.relative_to(local_root))
+                files_to_upload.append((str(local_file), s3_key))
 
-                try:
-                    self.s3_client.upload_file(local_path, save_bucket, s3_path)
-                    print(f"Uploaded {local_path} to s3://{save_bucket}/{s3_path}")
-
-                except Exception as e:
-                    print(f"Error uploading {local_path} to s3://{save_bucket}/{s3_path}: {e}")
+        for local_file_path, s3_key in files_to_upload:
+            try:
+                self.s3_client.upload_file(local_file_path, save_bucket, s3_key)
+                print(f"  Uploaded {local_file_path} to s3://{save_bucket}/{s3_key}")
+            except Exception as e:
+                print(f"  Error uploading {local_file_path}: {e}")
