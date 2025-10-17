@@ -1,0 +1,247 @@
+from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, NECK, VALIDATION_SPLIT
+
+from urllib.parse import urlparse
+import os, boto3, json, glob, random
+import pickle
+from typing import Optional, List, Dict, Any, Tuple
+from collections import defaultdict
+import tensorflow as tf
+import numpy as np
+from tqdm import tqdm
+
+class TrainDataLoader:
+    def __init__(self, data_path, save_path=None, s3_save_path=None, samples_per_class=1000):
+        self.data_path = data_path
+        # s3 경로 확인
+        self.is_s3 = data_path.startswith('s3://')
+        if self.is_s3:
+            parsed_s3_path = urlparse(data_path)
+            self.s3_bucket = parsed_s3_path.netloc
+            self.s3_prefix = parsed_s3_path.path.lstrip('/')
+            self.s3_client = boto3.client('s3')
+        self.save_path = os.path.expanduser(save_path)  # f"{base_path}/졸업프로젝트"
+        self.s3_save_path = s3_save_path
+
+        self.samples_per_class = samples_per_class
+
+    def create_dataset(self) -> Tuple[np.ndarray, np.ndarray]:
+        print(f"\nStarting data loading from: {self.data_path}")
+        files_by_class = defaultdict(list)
+
+        for folder_name, folder_meaning in KSL_SENTENCES.items():
+            class_label = folder_meaning
+            for direction in DIRECTIONS:
+                if self.is_s3:
+                    direction_prefix = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
+                    person_prefixes = self._list_s3_subdirs(direction_prefix)
+                    print(f"Searching in : {direction_prefix}")
+                else:
+                    direction_dir = os.path.join(self.data_path, folder_name, f"{folder_name}_{direction}")
+                    if not os.path.exists(direction_dir):
+                        continue
+                    person_dirs = glob.glob(os.path.join(direction_dir, f"*REAL*_{direction}"))
+                person_paths = person_prefixes if self.is_s3 else person_dirs
+                for person_path in tqdm(person_paths, desc=f"Loading {folder_name}_{direction}"):
+                    if self.is_s3:
+                        keypoint_files = self._get_s3_keypoint_files(person_path)
+                    else:
+                        if not os.path.isdir(person_path):
+                            continue
+                        keypoint_files = sorted(glob.glob(os.path.join(person_path,"*_keypoints.json")))
+                    files_by_class[class_label].extend(keypoint_files)
+
+        sampled_files = []
+        print("\n--- Stratified Sampling ---")
+        for class_label, file_list in files_by_class.items():
+            num_files = len(file_list)
+            num_to_sample = min(self.samples_per_class, num_files)
+            print(f"Class: '{class_label}': Found {num_files}")
+            sampled_files.extend(random.sample(file_list, num_to_sample))
+
+        print("---------------------------\n")
+
+        random.shuffle(sampled_files)
+        num_samples = len(sampled_files)
+        print(f"Total files sampled across all classes: {num_samples}")
+
+        dataset = tf.data.Dataset.from_tensor_slices(sampled_files)
+        print(f"Loading and processing data from {self.data_path}...")
+        dataset = dataset.map(
+            lambda path: tf.py_function(
+                self.load_and_process_s3_path, inp=[path], Tout=tf.float32
+            ), num_parallel_calls=tf.data.AUTOTUNE)
+
+        dataset = dataset.map(lambda x: tf.reshape(x, [-1]))
+
+        numpy_dataset = np.array([item.numpy() for item in tqdm(dataset, total=num_samples, desc="Processing Dataset")])
+
+        validation_size = max(1, int(len(numpy_dataset) * VALIDATION_SPLIT)) # 최소 1개
+
+        if validation_size >= len(numpy_dataset):
+            raise ValueError(f"Not enough samples: {len(numpy_dataset)}. Need at least 2.")
+
+        train_dataset = numpy_dataset[:-validation_size]
+        validation_dataset = numpy_dataset[-validation_size:]
+
+        print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
+
+        return train_dataset, validation_dataset
+
+    def json_to_numpy(self, data: Dict[str, Any]) -> np.ndarray:
+        person = data
+        # Extract pose keypoints (25 points, 3 values each)
+        pose_kp = np.array(person.get('pose_keypoints_2d', [])).reshape(-1, 3)
+        assert pose_kp.shape[0] == 25, f"pose keypoint shape differs: {pose_kp.shape[0]}"
+
+        # Extract face keypoints (70 points)
+        face_kp = np.array(person.get('face_keypoints_2d', [])).reshape(-1, 3)
+        assert face_kp.shape[0] == 70, f"face keypoint shape differs: {face_kp.shape[0]}"
+
+        # Extract hand keypoints (21 points each)
+        left_hand_kp = np.array(person.get(
+            'hand_left_keypoints_2d', [])).reshape(-1, 3)
+        assert left_hand_kp.shape[0] == 21, f"left hand keypoint shape differs: {left_hand_kp.shape[0]}"
+
+        right_hand_kp = np.array(person.get(
+            'hand_right_keypoints_2d', [])).reshape(-1, 3)
+        assert right_hand_kp.shape[0] == 21, f"right hand keypoint shape differs: {right_hand_kp.shape[0]}"
+
+        # Take x, y coordinates and confidence scores
+        pose_xy = pose_kp[:, :2]
+        pose_conf = pose_kp[:, 2:3]
+
+        face_xy = face_kp[:, :2]
+        face_conf = face_kp[:, 2:3]
+
+        left_hand_xy = left_hand_kp[:, :2]
+        left_hand_conf = left_hand_kp[:, 2:3]
+
+        right_hand_xy = right_hand_kp[:, :2]
+        right_hand_conf = right_hand_kp[:, 2:3]
+
+        # [-1, 1] 정규화
+        # First, find the bounding box of all valid points
+        all_x = np.concatenate([
+            pose_xy[pose_conf[:, 0] > 0.1, 0],
+            face_xy[face_conf[:, 0] > 0.1, 0],
+            left_hand_xy[left_hand_conf[:, 0] > 0.1, 0],
+            right_hand_xy[right_hand_conf[:, 0] > 0.1, 0]
+        ])
+        all_y = np.concatenate([
+            pose_xy[pose_conf[:, 0] > 0.1, 1],
+            face_xy[face_conf[:, 0] > 0.1, 1],
+            left_hand_xy[left_hand_conf[:, 0] > 0.1, 1],
+            right_hand_xy[right_hand_conf[:, 0] > 0.1, 1]
+        ])
+
+        if len(all_x) > 0 and len(all_y) > 0:
+            # Calculate center and scale
+            center_x = (np.max(all_x) + np.min(all_x)) / 2
+            center_y = (np.max(all_y) + np.min(all_y)) / 2
+            scale = max(
+                np.max(all_x) - np.min(all_x),
+                np.max(all_y) - np.min(all_y)) / 2
+
+            # Avoid division by zero
+            if scale < 1:
+                scale = 1
+
+            # [-1, 1] 정규화
+            pose_xy = (pose_xy - [center_x, center_y]) / scale
+            face_xy = (face_xy - [center_x, center_y]) / scale
+            left_hand_xy = (left_hand_xy - [center_x, center_y]) / scale
+            right_hand_xy = (right_hand_xy - [center_x, center_y]) / scale
+
+            # Clip
+            pose_xy = np.clip(pose_xy, -2, 2)
+            face_xy = np.clip(face_xy, -2, 2)
+            left_hand_xy = np.clip(left_hand_xy, -2, 2)
+            right_hand_xy = np.clip(right_hand_xy, -2, 2)
+
+        # Concatenate all keypoints: body(25) + face(70) + left_hand(21) + right_hand(21) = 137
+        all_keypoints = np.concatenate([
+            pose_xy,
+            face_xy,
+            left_hand_xy,
+            right_hand_xy
+        ], axis=0)
+
+        # Extract selected landmarks
+        selected_keypoints = all_keypoints[POINT_LANDMARKS, :]
+
+        # 목 기준 정규화
+        neck_pos = all_keypoints[NECK:NECK + 1, :]
+        neck_mean = np.nanmean(neck_pos, axis=0, keepdims=True)
+        if np.isnan(neck_mean).any():
+            neck_mean = np.array([[0.5, 0.5]])
+
+        std = np.nanstd(selected_keypoints)
+        if std == 0:
+            std = 1.0
+        selected_keypoints = (selected_keypoints - neck_mean) / std
+        selected_keypoints = np.nan_to_num(selected_keypoints, 0)
+
+        return selected_keypoints.astype(np.float32) # (98, 2)
+        # s3 관련 함수
+    def load_and_process_s3_path(self, file_path_tensor: tf.Tensor) -> tf.Tensor:
+        file_path = file_path_tensor.numpy().decode('utf-8')
+        try:
+            if file_path.startswith('s3://'):
+                parsed_s3_path = urlparse(file_path)
+                s3_object = self.s3_client.get_object(
+                    Bucket=parsed_s3_path.netloc,
+                    Key=parsed_s3_path.path.lstrip('/')
+                )
+                file_content = s3_object['Body'].read().decode('utf-8')
+                data = json.loads(file_content)
+            else:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+            assert 'people' in data, "데이터에 키포인트 없음"
+            people_data = data['people']
+
+            assert isinstance(people_data, dict), "이상한 데이터 형식"
+            person = people_data
+            assert len(people_data) != 0, "데이터 길이 0"
+
+            return self.json_to_numpy(person)
+        except Exception as e:
+            raise ValueError(f"Error processing {file_path_tensor.numpy().decode('utf-8')}: {e}")
+
+    def _list_s3_subdirs(self, prefix):
+        paginator = self.s3_client.get_paginator('list_objects_v2')
+        result = paginator.paginate(
+            Bucket=self.s3_bucket,
+            Prefix=prefix,
+            Delimiter='/')
+        return [p.get('Prefix')
+                for page in result for p in page.get('CommonPrefixes', [])]
+
+    def _get_s3_keypoint_files(self, prefix):
+        paginator = self.s3_client.get_paginator('list_objects_v2')
+        result = paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix)
+        return sorted([f"s3://{self.s3_bucket}/{o.get('Key')}" for page in result for o in page.get(
+            'Contents', []) if o.get('Key').endswith('_keypoints.json')])
+
+    def upload_model_to_s3(self):
+        local_dir = os.path.expanduser(self.save_path)
+        print(f"Uploading files of {local_dir} to {self.s3_save_path}")
+        parsed_s3_path = urlparse(self.s3_save_path)
+        save_bucket = parsed_s3_path.netloc
+        save_prefix = parsed_s3_path.path.lstrip('/')
+
+        # 기존 s3_client 재사용 (이미 __init__에서 생성됨)
+        if not hasattr(self, 's3_client'):
+            self.s3_client = boto3.client('s3')
+
+        for root, dirs, files in os.walk(local_dir):
+            for file in files:
+                local_path = os.path.join(root, file)
+                s3_path = os.path.join(save_prefix, os.path.relpath(local_path, local_dir))
+
+                try:
+                    self.s3_client.upload_file(local_path, save_bucket, s3_path)
+                    print(f"Uploaded {local_path} to s3://{save_bucket}/{s3_path}")
+
+                except Exception as e:
+                    print(f"Error uploading {local_path} to s3://{save_bucket}/{s3_path}: {e}")

@@ -58,7 +58,7 @@ def preprocess_sequence(sequence):
     return processed
 
 # -- 4. 모델 로딩 --
-MODEL_PATH = 'models/sign_language_v1.h5'
+MODEL_PATH = 'models/gloss_transformer_models/sign_language_v1.h5'
 print("모델 로딩 중...")
 tf.get_logger().setLevel('ERROR')
 custom_objects = {

@@ -61,6 +61,7 @@ POSE = [
     #17,  # REar
     #18   # LEar
 ]
+NECK = 1
 
 # 팔 관련 포인트
 LPOSE = [5, 6, 7]  # Left arm (LShoulder, LElbow, LWrist)
@@ -151,6 +152,7 @@ POINT_LANDMARKS = (
     LHAND +
     RHAND
 )
+LEN_LANDMARKS = len(POINT_LANDMARKS)
 
 assert all(0 <= idx < 137 for idx in POINT_LANDMARKS), "Invalid landmark indices!"
 assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"
@@ -162,6 +164,10 @@ CHANNELS = 2 * NUM_NODES  # x, y for each point
 KSL_DATA_PATH = "data"
 KSL_TRAIN_PATH = "data/train"
 KSL_VAL_PATH = "data/val"
+
+S3_DATA_PATH = 's3://openpose-keypoints'
+LOCAL_UMAP_SAVE_PATH = '~/store_umap'
+S3_UMAP_MODEL_PATH = 's3://trout-model/umap_models'
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 try:

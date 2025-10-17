@@ -9,7 +9,7 @@ from typing import Dict
 
 # 커스텀
 from src.backbone import get_model, TFLiteModel
-from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, KSL_SENTENCES, DIRECTIONS, VALIDATION_SPLIT
+from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, KSL_SENTENCES, DIRECTIONS, VALIDATION_SPLIT, S3_UMAP_MODEL_PATH
 from preprocessing.dataset_loader import KSLDataLoader
 
 '''
@@ -22,11 +22,15 @@ DIRECTION = DIRECTIONS
 LABEL_MAP = KSL_SENTENCES
 NUM_CLASSES = len(LABEL_MAP)
 
+umap_encoder_path = os.path.join(os.path.expanduser(S3_UMAP_MODEL_PATH),'/encoder.keras')
+encoder = tf.keras.models.load_model(umap_encoder_path)
+encoder.summary()
+
 date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M-%S")
 base_name = f"ksl_model_{date_idx}"
 checkpoint_path = f"checkpoints/{base_name}.h5"
 save_model = f"models/{base_name}.h5"
-tflite_path = f"models/{base_name}.tflite"
+tflite_path = f"models/gloss_transformer_models/{base_name}.tflite"
 
 def train_model():
     # Load training data
@@ -145,8 +149,8 @@ def train_model():
 
 if __name__ == "__main__":
     # Create necessary directories
-    os.makedirs('checkpoints', exist_ok=True)
-    os.makedirs('models', exist_ok=True)
+    os.makedirs('../checkpoints', exist_ok=True)
+    os.makedirs('../models/gloss_transformer_models', exist_ok=True)
 
     # Train model
     history = train_model()
