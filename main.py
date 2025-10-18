@@ -9,8 +9,8 @@ import mediapipe as mp
 from tensorflow.keras.layers import Layer, Conv1D, Dense, Dropout, Add, Input, GlobalAveragePooling1D, Activation, BatchNormalization, Multiply, Reshape, Lambda
 from tensorflow.keras import backend as K
 from src.backbone import get_model, CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESHOLD, MAX_LEN, POINT_LANDMARKS, KSL_SENTENCES, GLOSS_TRANSFORMER_MODEL_PATH
-from load_data.create_dataset import mediapipe_to_openpose_keypoints, preprocess_sequence
+from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GLOSS_TRANSFORMER_PATH, UMAP_PATH
+from load_data.create_dataset import mediapipe_to_openpose_keypoints, main_preprocess_sequence
 
 # 수어 레이블 정의
 LABEL_MAP = KSL_SENTENCES
@@ -27,12 +27,12 @@ custom_objects = {
     'LateDropout': LateDropout, 'MultiHeadSelfAttention': MultiHeadSelfAttention
 }
 try:
-    model = tf.keras.models.load_model(GLOSS_TRANSFORMER_MODEL_PATH, custom_objects=custom_objects)
+    model = tf.keras.models.load_model(GLOSS_TRANSFORMER_PATH, custom_objects=custom_objects)
     print("커스텀 모델 로딩 완료")
 except Exception as e:
     print(f"모델 로딩 실패. 컴파일 없이 다시 시도합니다. 오류: {e}")
     try:
-        model = tf.keras.models.load_model(GLOSS_TRANSFORMER_MODEL_PATH, custom_objects=custom_objects, compile=False)
+        model = tf.keras.models.load_model(GLOSS_TRANSFORMER_PATH, custom_objects=custom_objects, compile=False)
         optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=0.001)
         model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
         print("커스텀 모델 (비컴파일) 로딩 완료")
@@ -75,7 +75,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 # 시퀀스가 충분히 쌓이면 예측 수행
                 if len(sequence_data) == SEQ_LEN and model:
                     try:
-                        processed_seq = preprocess_sequence(list(sequence_data))
+                        processed_seq = main_preprocess_sequence(list(sequence_data))
                         input_batch = np.expand_dims(processed_seq, axis=0)
                         
                         prediction = model.predict(input_batch, verbose=0)

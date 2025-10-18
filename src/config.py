@@ -12,9 +12,13 @@ PAD = 0. #-100.
 
 # Training parameters
 LEARNING_RATE = 0.0001
-BATCH_SIZE = 16
+LEARNING_RATE_FOR_UMAP = 0.001
+BATCH_SIZE = 32
+BATCH_SIZE_FOR_UMAP = 1024
 EPOCHS = 300
+EPOCHS_FOR_UMAP = 100
 VALIDATION_SPLIT = 0.2
+OUTPUT_DIM = 32
 
 # ============= POSE KEYPOINTS (0-24) =============
 # OpenPose BODY_25 model keypoints
@@ -61,7 +65,6 @@ POSE = [
     #17,  # REar
     #18   # LEar
 ]
-NECK = 1
 
 # 팔 관련 포인트
 LPOSE = [5, 6, 7]  # Left arm (LShoulder, LElbow, LWrist)
@@ -157,18 +160,18 @@ assert all(0 <= idx < 137 for idx in POINT_LANDMARKS), "Invalid landmark indices
 assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"
 
 NUM_NODES = len(POINT_LANDMARKS)
-CHANNELS = 2 * NUM_NODES  # x, y for each point
+DIM = 2 # 현재 2D이므로
+CHANNELS = DIM * NUM_NODES  # x, y for each point
 
 # ============= DATA PATHS =============
-KSL_DATA_PATH = "data"
-KSL_TRAIN_PATH = "data/train"
-KSL_VAL_PATH = "data/val"
-
 S3_DATA_PATH = 's3://openpose-keypoints'
-LOCAL_UMAP_SAVE_PATH = '~/store_umap'
-S3_UMAP_MODEL_PATH = 's3://trout-model/umap_models'
+DATA_PATH = 'data/openpose_keypoints'
+UMAP_PATH = 'models/umap_models'
+S3_UMAP_PATH = 's3://trout-model/umap_models'
+GLOSS_TRANSFORMER_PATH = 'models/gloss_transformer_models/sign_language_v1.h5'
+S3_GLOSS_TRANSFORMER_PATH = 's3://trout-model/models'
 
-GLOSS_TRANSFORMER_MODEL_PATH = 'models/gloss_transformer_models/sign_language_v1.h5'
+WANDB_PROJ_NAME = "grad-umap-project"
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 try:

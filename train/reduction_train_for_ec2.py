@@ -17,6 +17,7 @@ import wandb
 from wandb.integration.keras import WandbMetricsLogger
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from collections import defaultdict
+from sklearn.manifold import trustworthiness
 
 class DataDimensionReducer:
     def __init__(self, data_path, save_path, s3_save_path, samples_per_class=1000, epochs=10, mini_project_name="landmark-reducer-v2") -> None:
@@ -123,14 +124,16 @@ class DataDimensionReducer:
 
         print("Constructing embedder...")
         self.embedder = ParametricUMAP(
+            n_neighbors=15,
+            min_dist=0.1,
+
             encoder=self.encoder,
             decoder=self.decoder,
             dims=self.dims,
             n_components=self.n_components,
+
             parametric_reconstruction=True, # umap loss & reconstruction loss 모두 반영
-
             parametric_reconstruction_loss_fcn=tf.keras.losses.MeanSquaredError(), # default: Cross Entropy (범위 0~1) 에서 MSE (범위 -1~1)로 변경
-
             reconstruction_validation=self.test_dataset,
             autoencoder_loss=True,
 
@@ -199,6 +202,11 @@ class DataDimensionReducer:
 
         train_dataset = numpy_dataset[:-validation_size]
         validation_dataset = numpy_dataset[-validation_size:]
+
+        print(f"Train shape: {train_dataset.shape}")
+        print(f"Val shape: {validation_dataset.shape}")
+        print(f"Train stats: mean={train_dataset.mean():.3f}, std={train_dataset.std():.3f}")
+        print(f"Val stats: mean={validation_dataset.mean():.3f}, std={validation_dataset.std():.3f}")
 
         print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
 
@@ -286,23 +294,13 @@ class DataDimensionReducer:
         # Extract selected landmarks
         selected_keypoints = all_keypoints[POINT_LANDMARKS, :]
 
-        # 목 기준 정규화
-        neck_pos = all_keypoints[NECK:NECK + 1, :]
-        neck_mean = np.nanmean(neck_pos, axis=0, keepdims=True)
-        if np.isnan(neck_mean).any():
-            neck_mean = np.array([[0.5, 0.5]])
-
-        std = np.nanstd(selected_keypoints)
-        if std == 0:
-            std = 1.0
-        selected_keypoints = (selected_keypoints - neck_mean) / std
         selected_keypoints = np.nan_to_num(selected_keypoints, 0)
 
         return selected_keypoints.astype(np.float32) # (98, 2)
 
     def train_reducer(self):
         print("Converting tensorflow dataset to numpy array for UMAP fitting...")
-        self.embedder.fit(self.train_dataset)
+        train_embedding = self.embedder.fit_transform(self.train_dataset)
         print("Saving embedder model...")
         Path(self.save_path).mkdir(parents=True, exist_ok=True)
         self.embedder.save(self.save_path)
@@ -338,9 +336,20 @@ class DataDimensionReducer:
 
         self._upload_model_to_s3()
         wandb.finish()
+        self.test_umap(train_embedding)
 
-    def load_encoder(self):
-        return load_ParametricUMAP(self.save_path)  # embedder.encoder로 사용할 것
+    def test_umap(self, train_embedding):
+        train_embedding = train_embedding
+        val_embedding = self.embedder.transform(self.test_dataset)
+
+        trust_score = trustworthiness(self.test_dataset, val_embedding, n_neighbors=15)
+        print(f"Trustworthiness: {trust_score:.4f}")
+
+        plt.figure(figsize=(10,8))
+        plt.scatter(val_embedding[:,0], val_embedding[:,1],alpha=0.5, s=5)
+        plt.title('UMAP Embedding')
+        plt.savefig('embedding.png')
+        plt.show()
 
     # s3 관련 함수
     def load_and_process_s3_path(self, file_path_tensor: tf.Tensor) -> tf.Tensor:
@@ -420,11 +429,11 @@ class DataDimensionReducer:
         BATCH_SIZE = 16
         POSE = [
             # 0,   # Nose
-            1,   # Neck (normalization reference)
-            2,   # RShoulder
+            # 1,   # Neck (normalization reference)
+            # 2,   # RShoulder
             3,   # RElbow
             4,   # RWrist
-            5,   # LShoulder
+            # 5,   # LShoulder
             6,   # LElbow
             7,   # LWrist
             # 15,  # REye
@@ -432,7 +441,6 @@ class DataDimensionReducer:
             # 17,  # REar
             # 18   # LEar
         ]
-        NECK = 1
         # 왼손 (95-115): 21개 포인트
         LHAND = list(range(95, 116))
 
@@ -461,5 +469,5 @@ if __name__ == "__main__":
         s3_save_path=S3_SAVE_PATH,
         samples_per_class=2000,
         epochs=100,
-        mini_project_name="98->128->32/dropout:0.1/L2:0.001/sizex2/scheduler")
+        mini_project_name="[정규화 고침] 98->128->32/dropout:0.2/L2:0.001/data:2000/scheduler")
     dr.train_reducer()

@@ -3,7 +3,6 @@ import tensorflow as tf
 import boto3
 from urllib.parse import urlparse
 import matplotlib.pyplot as plt
-from typing import Optional, List, Dict, Any, Tuple
 import pickle
 from pathlib import Path
 from umap.parametric_umap import ParametricUMAP
@@ -11,11 +10,12 @@ from umap.parametric_umap import load_ParametricUMAP
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from src.config import NUM_NODES, LOCAL_UMAP_SAVE_PATH, S3_DATA_PATH, S3_UMAP_MODEL_PATH
-from load_data.create_dataset import TrainDataLoader
+from src.config import NUM_NODES, EPOCHS_FOR_UMAP, UMAP_PATH, S3_DATA_PATH, S3_UMAP_PATH, \
+    WANDB_PROJ_NAME, OUTPUT_DIM, LEARNING_RATE_FOR_UMAP, BATCH_SIZE_FOR_UMAP
+from load_data.create_dataset import TrainDataLoader, upload_file_to_s3
 
 class DataDimensionReducer:
-    def __init__(self, data_path, save_path, s3_save_path, samples_per_class=1000, epochs=10, mini_project_name="landmark-reducer-v2") -> None:
+    def __init__(self, data_path, save_path, s3_save_path, output_dim=32, samples_per_class=1000, epochs=10, learning_rate=0.001, batch_size=1024, mini_project_name="landmark-reducer-v3") -> None:
         self.data_path = data_path
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
@@ -27,15 +27,15 @@ class DataDimensionReducer:
         self.save_path = os.path.expanduser(save_path)  # f"{base_path}/졸업프로젝트"
         self.s3_save_path = s3_save_path
 
-        self.checkpoint_filepath = os.path.join(self.save_path, 'best_model.weights.h5')
+        self.checkpoint_filepath = os.path.join(self.save_path, 'best_umap_model.weights.h5')
 
         self.samples_per_class = samples_per_class
         print("Creating dataset...")
         self.trainer = TrainDataLoader(data_path=data_path, save_path=save_path, s3_save_path=s3_save_path, samples_per_class=samples_per_class)
-        self.train_dataset, self.test_dataset = self.trainer.create_dataset()
+        self.train_dataset, self.test_dataset = self.trainer.create_umap_dataset()
 
         self.dims = (NUM_NODES*2, )  # 49*2
-        self.n_components = 32
+        self.n_components = output_dim
 
         print("Constructing encoder...")
         self.encoder = tf.keras.Sequential([
@@ -86,12 +86,12 @@ class DataDimensionReducer:
         ])
 
         wandb.init(
-            project="grad-umap-project",
+            project=WANDB_PROJ_NAME,
             name=mini_project_name,
             config={
-                "learning_rate": 0.001,
+                "learning_rate": learning_rate,
                 "epochs": epochs,
-                "batch_size": 1024 # 변수화 하는 게 좋을 듯
+                "batch_size": batch_size # 변수화 하는 게 좋을 듯
             }
         )
 
@@ -172,16 +172,19 @@ class DataDimensionReducer:
                 except Exception as e:
                     print(f"Error plotting history: {e}")
 
-        self.trainer.upload_file_to_s3(local_root_path=self.save_path, s3_path=self.s3_save_path)
+        upload_file_to_s3(local_root_path=self.save_path, s3_path=self.s3_save_path)
         wandb.finish()
 
 
 if __name__ == "__main__":
     dr = DataDimensionReducer(
         data_path=S3_DATA_PATH,
-        save_path=LOCAL_UMAP_SAVE_PATH,
-        s3_save_path=S3_UMAP_MODEL_PATH,
+        save_path=UMAP_PATH,
+        s3_save_path=S3_UMAP_PATH,
+        output_dim=OUTPUT_DIM,
         samples_per_class=2000,
-        epochs=100,
+        epochs=EPOCHS_FOR_UMAP,
+        learning_rate=LEARNING_RATE_FOR_UMAP,
+        batch_size=BATCH_SIZE_FOR_UMAP,
         mini_project_name="98->128->32/dropout:0.1/L2:0.001/sizex2/scheduler")
     dr.train_reducer()
