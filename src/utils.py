@@ -74,17 +74,17 @@ class Preprocess(tf.keras.layers.Layer):
         x = x[..., :2]
         
         # Calculate derivatives
-        '''dx = tf.cond(
+        dx = tf.cond(
             tf.greater(tf.shape(x)[1], 1),
             lambda: tf.pad(x[:, 1:] - x[:, :-1], [[0,0],[0,1],[0,0],[0,0]]),
             lambda: tf.zeros_like(x)
-        )'''
+        )
         
-        '''dx2 = tf.cond(
+        dx2 = tf.cond(
             tf.greater(tf.shape(x)[1], 2),
             lambda: tf.pad(x[:, 2:] - x[:, :-2], [[0,0],[0,2],[0,0],[0,0]]),
             lambda: tf.zeros_like(x)
-        )'''
+        )
         
         # Concatenate features: original coordinates + first derivative + second derivative
         # Shape: [batch, time, num_landmarks, 2] -> [batch, time, num_landmarks * 2 * 3]
@@ -92,11 +92,11 @@ class Preprocess(tf.keras.layers.Layer):
         time_steps = tf.shape(x)[1]
         
         x_flat = tf.reshape(x, (batch_size, time_steps, num_landmarks * 2))
-        #dx_flat = tf.reshape(dx, (batch_size, time_steps, num_landmarks * 2))
-        #dx2_flat = tf.reshape(dx2, (batch_size, time_steps, num_landmarks * 2))
+        dx_flat = tf.reshape(dx, (batch_size, time_steps, num_landmarks * 2))
+        dx2_flat = tf.reshape(dx2, (batch_size, time_steps, num_landmarks * 2))
         
         # Concatenate all features
-        #x = tf.concat([x_flat, dx_flat, dx2_flat], axis=-1)
+        x = tf.concat([x_flat, dx_flat, dx2_flat], axis=-1)
         
         # Replace NaN with 0
         x = tf.where(tf.math.is_nan(x), tf.constant(0., x.dtype), x)

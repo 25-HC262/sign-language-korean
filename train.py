@@ -120,12 +120,9 @@ def train_model():
     print("Converting to TFLite...")
     tflite_model = TFLiteModel(model)  # Pass single model, not list
 
-    concrete_input_signature = tf.TensorSpec(
-        shape=[1, 137, 3],  # (배치=1, 키포인트=137, 채널=3(x,y,c))
-        dtype=tf.float32
+    converter = tf.lite.TFLiteConverter.from_concrete_functions(
+        [tflite_model.__call__.get_concrete_function()]
     )
-    concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
-    converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function])
 
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
 
