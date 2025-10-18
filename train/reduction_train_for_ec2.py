@@ -12,15 +12,15 @@ import pickle
 from pathlib import Path
 from umap.parametric_umap import ParametricUMAP
 from umap.parametric_umap import load_ParametricUMAP
-from tensorflow.keras.callbacks import EarlyStopping
 from tqdm import tqdm
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from collections import defaultdict
+from sklearn.manifold import trustworthiness
 
 class DataDimensionReducer:
-    def __init__(self, data_path, save_path, s3_save_path, samples_per_class=1000) -> None:
+    def __init__(self, data_path, save_path, s3_save_path, samples_per_class=1000, epochs=10, mini_project_name="landmark-reducer-v2") -> None:
         self.setting_in_colab()
         self.data_path = data_path
         self.label_map = label_map
@@ -52,42 +52,65 @@ class DataDimensionReducer:
             # tf.keras.layers.BatchNormalization(),
             # tf.keras.layers.Dropout(0.3),
 
-            tf.keras.layers.Dense(units=256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.5),
+            # tf.keras.layers.Dense(units=256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+            # tf.keras.layers.BatchNormalization(),
+            # tf.keras.layers.Dropout(0.5),
+            #
+            # tf.keras.layers.Dense(units=128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+            # tf.keras.layers.BatchNormalization(),
+            # tf.keras.layers.Dropout(0.3),
 
             tf.keras.layers.Dense(units=128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
-            tf.keras.layers.Dense(units=self.n_components)
+            tf.keras.layers.Dropout(0.2),
+
+            tf.keras.layers.Dense(units=self.n_components, kernel_regularizer=tf.keras.regularizers.l2(0.001))
         ])
         print("Constructing decoder....")
         self.decoder = tf.keras.Sequential([
             tf.keras.layers.InputLayer(input_shape=(self.n_components,)),
-            tf.keras.layers.Dense(units=128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(0.001)),
 
-            tf.keras.layers.Dense(units=256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(0.001)),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.5),
+            # tf.keras.layers.Dense(units=32, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.01)),
+            # tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(units=128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+            tf.keras.layers.Dropout(0.2),
+
+            #
+            # tf.keras.layers.Dense(units=128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+            # tf.keras.layers.BatchNormalization(),
+            # tf.keras.layers.Dropout(0.3),
+            #
+            # tf.keras.layers.Dense(units=256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+            # tf.keras.layers.BatchNormalization(),
+            # tf.keras.layers.Dropout(0.5),
 
             # tf.keras.layers.Dense(units=512, activation='relu'),
             # tf.keras.layers.BatchNormalization(),
             # tf.keras.layers.Dropout(0.3),
 
-            tf.keras.layers.Dense(units=LEN_LANDMARKS * 2, activation='linear'),
+            tf.keras.layers.Dense(units=LEN_LANDMARKS * 2, activation='linear', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
             tf.keras.layers.Reshape(target_shape=self.dims)
         ])
 
         wandb.init(
             project="grad-umap-project",
-            name="landmark-reducer-v1",
+            name=mini_project_name,
             config={
                 "learning_rate": 0.001,
-                "epochs": 10,
+                "epochs": epochs,
                 "batch_size": 1024 # 변수화 하는 게 좋을 듯
             }
         )
 
         callbacks = [
-            EarlyStopping(monitor='val_loss', patience=10, verbose=1), # {patience}번 동안 개선 안되면 학습 조기 중단
+            ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=5,
+                min_lr=1e-7,
+                verbose=1,
+                mode='min'
+            ),
+            EarlyStopping(monitor='val_loss', patience=15, verbose=1), # {patience}번 동안 개선 안되면 학습 조기 중단
             ModelCheckpoint(
                 filepath=self.checkpoint_filepath,
                 save_weights_only=True, # 가중치만 저장
@@ -101,14 +124,16 @@ class DataDimensionReducer:
 
         print("Constructing embedder...")
         self.embedder = ParametricUMAP(
+            n_neighbors=15,
+            min_dist=0.1,
+
             encoder=self.encoder,
             decoder=self.decoder,
             dims=self.dims,
             n_components=self.n_components,
+
             parametric_reconstruction=True, # umap loss & reconstruction loss 모두 반영
-
             parametric_reconstruction_loss_fcn=tf.keras.losses.MeanSquaredError(), # default: Cross Entropy (범위 0~1) 에서 MSE (범위 -1~1)로 변경
-
             reconstruction_validation=self.test_dataset,
             autoencoder_loss=True,
 
@@ -116,6 +141,8 @@ class DataDimensionReducer:
             verbose=True,
             keras_fit_kwargs={'callbacks': callbacks}
         )
+        epochs //= 10    # 모델은 총 에폭수 = n_training_epochs*loss_report_frequency(10) 로 계산하므로
+        self.embedder.n_training_epochs = epochs
 
     def create_dataset(self) -> Tuple[np.ndarray, np.ndarray]:
         print(f"\nStarting data loading from: {self.data_path}")
@@ -175,6 +202,11 @@ class DataDimensionReducer:
 
         train_dataset = numpy_dataset[:-validation_size]
         validation_dataset = numpy_dataset[-validation_size:]
+
+        print(f"Train shape: {train_dataset.shape}")
+        print(f"Val shape: {validation_dataset.shape}")
+        print(f"Train stats: mean={train_dataset.mean():.3f}, std={train_dataset.std():.3f}")
+        print(f"Val stats: mean={validation_dataset.mean():.3f}, std={validation_dataset.std():.3f}")
 
         print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
 
@@ -251,8 +283,7 @@ class DataDimensionReducer:
             left_hand_xy = np.clip(left_hand_xy, -2, 2)
             right_hand_xy = np.clip(right_hand_xy, -2, 2)
 
-        # Concatenate all keypoints: body(25) + face(70) + left_hand(21) +
-        # right_hand(21) = 137
+        # Concatenate all keypoints: body(25) + face(70) + left_hand(21) + right_hand(21) = 137
         all_keypoints = np.concatenate([
             pose_xy,
             face_xy,
@@ -263,23 +294,13 @@ class DataDimensionReducer:
         # Extract selected landmarks
         selected_keypoints = all_keypoints[POINT_LANDMARKS, :]
 
-        # Normalize using neck
-        neck_pos = all_keypoints[NECK:NECK + 1, :]
-        neck_mean = np.nanmean(neck_pos, axis=0, keepdims=True)
-        if np.isnan(neck_mean).any():
-            neck_mean = np.array([[0.5, 0.5]])
-
-        std = np.nanstd(selected_keypoints)
-        if std == 0:
-            std = 1.0
-        selected_keypoints = (selected_keypoints - neck_mean) / std
         selected_keypoints = np.nan_to_num(selected_keypoints, 0)
 
-        return selected_keypoints.astype(np.float32)
+        return selected_keypoints.astype(np.float32) # (98, 2)
 
     def train_reducer(self):
         print("Converting tensorflow dataset to numpy array for UMAP fitting...")
-        self.embedder.fit(self.train_dataset)
+        train_embedding = self.embedder.fit_transform(self.train_dataset)
         print("Saving embedder model...")
         Path(self.save_path).mkdir(parents=True, exist_ok=True)
         self.embedder.save(self.save_path)
@@ -315,9 +336,20 @@ class DataDimensionReducer:
 
         self._upload_model_to_s3()
         wandb.finish()
+        self.test_umap(train_embedding)
 
-    def load_encoder(self):
-        return load_ParametricUMAP(self.save_path)  # embedder.encoder로 사용할 것
+    def test_umap(self, train_embedding):
+        train_embedding = train_embedding
+        val_embedding = self.embedder.transform(self.test_dataset)
+
+        trust_score = trustworthiness(self.test_dataset, val_embedding, n_neighbors=15)
+        print(f"Trustworthiness: {trust_score:.4f}")
+
+        plt.figure(figsize=(10,8))
+        plt.scatter(val_embedding[:,0], val_embedding[:,1],alpha=0.5, s=5)
+        plt.title('UMAP Embedding')
+        plt.savefig('embedding.png')
+        plt.show()
 
     # s3 관련 함수
     def load_and_process_s3_path(self, file_path_tensor: tf.Tensor) -> tf.Tensor:
@@ -397,11 +429,11 @@ class DataDimensionReducer:
         BATCH_SIZE = 16
         POSE = [
             # 0,   # Nose
-            1,   # Neck (normalization reference)
-            2,   # RShoulder
+            # 1,   # Neck (normalization reference)
+            # 2,   # RShoulder
             3,   # RElbow
             4,   # RWrist
-            5,   # LShoulder
+            # 5,   # LShoulder
             6,   # LElbow
             7,   # LWrist
             # 15,  # REye
@@ -409,7 +441,6 @@ class DataDimensionReducer:
             # 17,  # REar
             # 18   # LEar
         ]
-        NECK = 1
         # 왼손 (95-115): 21개 포인트
         LHAND = list(range(95, 116))
 
@@ -430,11 +461,13 @@ class DataDimensionReducer:
 
 if __name__ == "__main__":
     S3_DATA_PATH = 's3://openpose-keypoints'
-    LOCAL_SAVE_PATH = '~/umap'
+    LOCAL_SAVE_PATH = '~/store_umap'
     S3_SAVE_PATH = 's3://trout-model/umap_models'
     dr = DataDimensionReducer(
         data_path=S3_DATA_PATH,
         save_path=LOCAL_SAVE_PATH,
         s3_save_path=S3_SAVE_PATH,
-        samples_per_class=620)
+        samples_per_class=2000,
+        epochs=100,
+        mini_project_name="[정규화 고침] 98->128->32/dropout:0.2/L2:0.001/data:2000/scheduler")
     dr.train_reducer()

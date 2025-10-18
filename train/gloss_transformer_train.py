@@ -1,69 +1,37 @@
 import os
-import json
-import numpy as np
 import tensorflow as tf
-from collections import defaultdict
 import datetime
-import matplotlib.pyplot as plt
-from typing import Dict
+from pathlib import Path
+import wandb
+from wandb.integration.keras import WandbMetricsLogger
 
 # 커스텀
 from src.backbone import get_model, TFLiteModel
-from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, KSL_SENTENCES, DIRECTIONS, VALIDATION_SPLIT
-from preprocessing.dataset_loader import KSLDataLoader
-
-'''
-영상 1개(SEQUENCE) = 키포인트 파일 100-384개(현재 최대 MAX_LEN이 384라)로 구성됨.
-    SAMPLE은 시퀀스에 라벨 이미지를 더 가진 데이터.
-SAMPLES = 영상(시퀀스)들의 모임!
-'''
-
-DIRECTION = DIRECTIONS
-LABEL_MAP = KSL_SENTENCES
-NUM_CLASSES = len(LABEL_MAP)
+from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, OUTPUT_DIM, NUM_CLASSES, WANDB_PROJ_NAME, S3_DATA_PATH, S3_GLOSS_TRANSFORMER_PATH
+from load_data.create_dataset import TrainDataLoader, upload_file_to_s3
 
 date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M-%S")
-base_name = f"ksl_model_{date_idx}"
+base_name = f"sign_language_v2_{date_idx}"
 checkpoint_path = f"checkpoints/{base_name}.h5"
 save_model = f"models/{base_name}.h5"
-tflite_path = f"models/{base_name}.tflite"
+tflite_path = f"models/gloss_transformer_models/{base_name}.tflite"
 
-def train_model():
-    # Load training data
+def train_model(data_path: str, mini_project_name: str):
+    wandb.init(
+        project=WANDB_PROJ_NAME,
+        name=mini_project_name,
+        config={
+            "learning_rate": LEARNING_RATE,
+            "epochs": EPOCHS,
+            "batch_size": BATCH_SIZE
+        }
+    )
     print("\nLoading training data...")
-    dataset_loader = KSLDataLoader('data/openpose_keypoints', label_map=LABEL_MAP, is_training=True)
-    all_samples = dataset_loader.samples
-    if not all_samples:
-        raise ValueError("No training data found. Please check the path.")
-    print(f"Total training samples found: {len(all_samples)}")
-
-    # VALIDATION_SPLIT 비율로 train/test split
-    print(f"Using {(1-VALIDATION_SPLIT)*10}/{VALIDATION_SPLIT*10} train/test split.")
-    all_samples = dataset_loader.samples
-    train_samples = []
-    val_samples = []
-
-    grouped_by_folder_name = defaultdict(list)
-    # 폴더명 별로 샘플 분리
-    for sample in all_samples:
-        grouped_by_folder_name[sample['folder_name']].append(sample)
-
-    for folder_name, samples in grouped_by_folder_name.items():
-        np.random.shuffle(samples)
-        split_train_idx = int((1-VALIDATION_SPLIT)*len(samples))
-        train_samples.extend(samples[:split_train_idx])
-        val_samples.extend(samples[split_train_idx:])
-    print(f"Final dataset split - Train: {len(train_samples)}, Validation: {len(val_samples)}")
-
-    # sample 덮어 써서 get_dataset()으로 데이터셋화
-    dataset_loader.samples = train_samples
-    train_dataset = dataset_loader.get_dataset()
-    dataset_loader.samples = val_samples
-    val_dataset = dataset_loader.get_dataset()
+    train_dataset, val_dataset = TrainDataLoader(data_path=data_path, is_training_transformer=True).create_transformer_dataset()
 
     # Create model
     print("\nCreating model...")
-    model = get_model(max_len=MAX_LEN, dropout_step=0, dim=192, num_classes=NUM_CLASSES)
+    model = get_model(max_len=MAX_LEN, dropout_step=0, dim=OUTPUT_DIM, num_classes=NUM_CLASSES)
 
     if tf.config.list_physical_devices('GPU'):
         optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=LEARNING_RATE)
@@ -100,7 +68,8 @@ def train_model():
             patience=5,
             min_lr=1e-6,
             verbose=1
-        )
+        ),
+        WandbMetricsLogger()
     ]
 
     # Train model
@@ -115,13 +84,14 @@ def train_model():
 
     print("\nSaving model...")
     model.save(save_model)
+    upload_file_to_s3(local_root_path=str(Path(save_model).parent), s3_path=S3_GLOSS_TRANSFORMER_PATH, file_name=str(Path(save_model).name))
 
     # Convert to TFLite
     print("Converting to TFLite...")
     tflite_model = TFLiteModel(model)  # Pass single model, not list
 
     concrete_input_signature = tf.TensorSpec(
-        shape=[1, 137, 3],  # (배치=1, 키포인트=137, 채널=3(x,y,c))
+        shape=[1, MAX_LEN, OUTPUT_DIM],  # (배치=1, 최대프레임=137, 채널=유맵차원)
         dtype=tf.float32
     )
     concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
@@ -135,18 +105,19 @@ def train_model():
         with open(tflite_path, 'wb') as f:
             f.write(tflite_quant_model)
         print("TFLite model saved successfully!")
+        upload_file_to_s3(local_root_path=str(Path(tflite_path).parent), s3_path=S3_GLOSS_TRANSFORMER_PATH, file_name=str(Path(tflite_model).name))
     except Exception as e:
         print(f"Warning: TFLite conversion failed: {e}")
 
     print("Training completed!")
+    wandb.finish()
 
     return history
 
-
 if __name__ == "__main__":
     # Create necessary directories
-    os.makedirs('checkpoints', exist_ok=True)
-    os.makedirs('models', exist_ok=True)
+    os.makedirs('../checkpoints', exist_ok=True)
+    os.makedirs('../models/gloss_transformer_models', exist_ok=True)
 
     # Train model
-    history = train_model()
+    history = train_model(data_path=S3_DATA_PATH, mini_project_name="output-dim:32")

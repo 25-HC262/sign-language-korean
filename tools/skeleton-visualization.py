@@ -4,7 +4,7 @@ import os.path
 import cv2
 import numpy as np
 import imageio
-from train import get_dataset
+from train.gloss_transformer_train import get_dataset
 
 '''1회용 gif 만드는 코드, 폴더 구조는 data/train 내에 문장 폴더 -> 방향별 폴더 -> 개인폴더 여야 함'''
 
