@@ -303,7 +303,7 @@ class TFLiteModel(tf.Module):
         Returns:
             A dictionary with a single key 'outputs' and corresponding output tensor.
         """
-        x = self.preprocess_layer(inputs)
+        x = inputs # self.preprocess_layer(inputs)
         expected_shape = self.islr_model.input_shape[1:] # (배치 크기 제외)
         x.set_shape([inputs.shape[0]] + expected_shape)
         outputs = self.islr_model(x)  # Call single model directly
