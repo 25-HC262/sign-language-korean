@@ -175,7 +175,7 @@ WANDB_PROJ_NAME = "grad-umap-project"
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 try:
-    with open('label_map.json', 'r', encoding='utf-8') as f:
+    with open('src/label_map.json', 'r', encoding='utf-8') as f:
         KSL_SENTENCES = json.load(f)
 except FileNotFoundError:
     print("Warning: 'label_map.json' not found.")

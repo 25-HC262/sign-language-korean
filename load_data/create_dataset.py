@@ -26,8 +26,19 @@ class TrainDataLoader:
         self.samples_per_class = samples_per_class
         self.is_training_transformer = is_training_transformer
         if self.is_training_transformer:
-            self.umap_encoder_path = os.path.join(os.path.expanduser(S3_UMAP_PATH), 'encoder.keras')
-            self.umap_encoder = tf.keras.models.load_model(self.umap_encoder_path)
+            import h5py
+            umap_encoder_path = "models/umap_models/encoder.h5"
+            try:
+                self.umap_encoder = tf.keras.models.load_model(umap_encoder_path)
+
+            except Exception as e:
+                print(f"Error loading encoder model: {e}")
+                # 또는 커스텀 객체 사용
+                self.umap_encoder = tf.keras.models.load_model(
+                    umap_encoder_path,
+                    custom_objects={'InputLayer': tf.keras.layers.InputLayer},
+                    compile=False
+                )
 
         self.videos = []
 
