@@ -25,10 +25,10 @@ pip install tensorflow-metal==1.1.0
 python3.10 -m venv venv
 source venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r documents/requirements-win.txt
--> addons 제외
-pip install "umap-learn[parametric-umap]" wandb boto3 
-tf-keras
--> pip freeze > requirements-linux.txt 할 것
+pip install -r documents/requirements-linux.txt
+#-> addons 제외
+#pip install "umap-learn[parametric-umap]" wandb boto3 
+#tf-keras
+#-> pip freeze > requirements-linux.txt 할 것
 
 python -m train.gloss_transformer_train

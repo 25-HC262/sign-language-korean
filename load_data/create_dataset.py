@@ -9,6 +9,7 @@ import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
+import json
 
 class TrainDataLoader:
     def __init__(self, data_path, save_path=None, s3_save_path=None, samples_per_class=1000, is_training_transformer=False):
@@ -26,19 +27,48 @@ class TrainDataLoader:
         self.samples_per_class = samples_per_class
         self.is_training_transformer = is_training_transformer
         if self.is_training_transformer:
-            import h5py
-            umap_encoder_path = "models/umap_models/encoder.h5"
-            try:
-                self.umap_encoder = tf.keras.models.load_model(umap_encoder_path)
+            weights_path = "models/umap_models/encoder.weights.h5"
+            config_path = "models/umap_models/encoder_config.json"
+            # Config 읽기
+            with open(config_path, 'r') as f:
+                config = json.load(f)
 
-            except Exception as e:
-                print(f"Error loading encoder model: {e}")
-                # 또는 커스텀 객체 사용
-                self.umap_encoder = tf.keras.models.load_model(
-                    umap_encoder_path,
-                    custom_objects={'InputLayer': tf.keras.layers.InputLayer},
-                    compile=False
-                )
+            # 수동으로 모델 재구성 (InputLayer 문제 회피)
+            layers = []
+            input_shape = None
+
+            for layer_config in config['layers']:
+                if layer_config['class_name'] == 'InputLayer':
+                    # batch_shape에서 input_shape 추출
+                    batch_shape = layer_config['config'].get('batch_shape') or layer_config['config'].get('batch_input_shape')
+                    input_shape = batch_shape[1:]  # [None, 98] -> (98,)
+                    continue
+
+                # 다른 레이어들 추가
+                layer_class = getattr(tf.keras.layers, layer_config['class_name'])
+                layer = layer_class.from_config(layer_config['config'])
+                layers.append(layer)
+
+            # 모델 재구성 (InputLayer 없이)
+            self.umap_encoder = tf.keras.Sequential(layers)
+            self.umap_encoder.build((None,) + input_shape)
+
+            # 가중치 로드
+            self.umap_encoder.load_weights(weights_path)
+
+            print(f"✅ Encoder loaded successfully! Input shape: {input_shape}")
+            # umap_encoder_path = "models/umap_models/encoder.h5"
+            # try:
+            #     self.umap_encoder = tf.keras.models.load_model(umap_encoder_path)
+            #
+            # except Exception as e:
+            #     print(f"Error loading encoder model: {e}")
+            #     # 또는 커스텀 객체 사용
+            #     self.umap_encoder = tf.keras.models.load_model(
+            #         umap_encoder_path,
+            #         custom_objects={'InputLayer': tf.keras.layers.InputLayer},
+            #         compile=False
+            #     )
 
         self.videos = []
 

@@ -1,11 +1,22 @@
-# Windows 환경에서 실행
+# Windows에서 실행
 import tensorflow as tf
+import json
 
-# 기존 모델 로드
+# 모델 로드 (Windows에서는 되니까)
 model = tf.keras.models.load_model('../models/umap_models/encoder.keras')
 
-# 모델 구조만 가져와서 재저장
-model.save('../models/umap_models/encoder_v2.keras', save_format='keras')
+# 가중치만 저장
+model.save_weights('../models/umap_models/encoder.weights.h5')
 
-# 또는 H5 포맷으로 저장
-model.save('../models/umap_models/encoder.h5')
+# 모델 구조 확인 및 저장
+print("Model summary:")
+model.summary()
+
+# Config 저장
+config = model.get_config()
+with open('../models/umap_models/encoder_config.json', 'w') as f:
+    json.dump(config, f, indent=2)
+
+print("\nSaved files:")
+print("- encoder_weights.h5")
+print("- encoder_config.json")
