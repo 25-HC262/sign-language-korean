@@ -1,5 +1,5 @@
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, S3_UMAP_PATH, \
-    BATCH_SIZE, OUTPUT_DIM
+    BATCH_SIZE, OUTPUT_DIM, NUM_NODES
 
 from urllib.parse import urlparse
 import os, boto3, json, glob, random
@@ -27,36 +27,19 @@ class TrainDataLoader:
         self.samples_per_class = samples_per_class
         self.is_training_transformer = is_training_transformer
         if self.is_training_transformer:
-            weights_path = "models/umap_models/encoder.weights.h5"
-            config_path = "models/umap_models/encoder_config.json"
-            # Config 읽기
-            with open(config_path, 'r') as f:
-                config = json.load(f)
+            weights_path = "models/umap_models/best_model.weights.h5"
+            self.umap_encoder = tf.keras.Sequential([
+                tf.keras.layers.InputLayer(input_shape=(NUM_NODES*2, )),
+                tf.keras.layers.Flatten(),
+                tf.keras.layers.Dense(units=128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+                tf.keras.layers.Dropout(0.2),
 
-            # 수동으로 모델 재구성 (InputLayer 문제 회피)
-            layers = []
-            input_shape = None
-
-            for layer_config in config['layers']:
-                if layer_config['class_name'] == 'InputLayer':
-                    # batch_shape에서 input_shape 추출
-                    batch_shape = layer_config['config'].get('batch_shape') or layer_config['config'].get('batch_input_shape')
-                    input_shape = batch_shape[1:]  # [None, 98] -> (98,)
-                    continue
-
-                # 다른 레이어들 추가
-                layer_class = getattr(tf.keras.layers, layer_config['class_name'])
-                layer = layer_class.from_config(layer_config['config'])
-                layers.append(layer)
-
-            # 모델 재구성 (InputLayer 없이)
-            self.umap_encoder = tf.keras.Sequential(layers)
-            self.umap_encoder.build((None,) + input_shape)
+                tf.keras.layers.Dense(units=OUTPUT_DIM, kernel_regularizer=tf.keras.regularizers.l2(0.001))
+            ])
 
             # 가중치 로드
             self.umap_encoder.load_weights(weights_path)
 
-            print(f"✅ Encoder loaded successfully! Input shape: {input_shape}")
             # umap_encoder_path = "models/umap_models/encoder.h5"
             # try:
             #     self.umap_encoder = tf.keras.models.load_model(umap_encoder_path)
