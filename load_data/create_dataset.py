@@ -128,50 +128,54 @@ class TrainDataLoader:
         print(f"\nStarting data loading from: {self.data_path}")
         files_by_class = defaultdict(list)
 
-        for folder_name, folder_meaning in KSL_SENTENCES.items():
-            class_label = folder_meaning
-            for direction in DIRECTIONS:
-                if self.is_s3:
-                    direction_prefix = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
-                    person_prefixes = self._list_s3_subdirs(direction_prefix)
-                    print(f"Searching in : {direction_prefix}")
-                else:
-                    direction_dir = os.path.join(self.data_path, folder_name, f"{folder_name}_{direction}")
-                    if not os.path.exists(direction_dir):
-                        continue
-                    person_dirs = glob.glob(os.path.join(direction_dir, f"*REAL*_{direction}"))
-
-                person_paths = person_prefixes if self.is_s3 else person_dirs
-                for person_path in tqdm(person_paths, desc=f"Loading {folder_name}_{direction}"):
+        with tqdm(KSL_SENTENCES.items(), desc="[Total Progress]", position=0) as pbar_sentences:
+            for folder_name, folder_meaning in pbar_sentences:
+                class_label = folder_meaning
+                pbar_sentences.set_postfix(current_class=folder_name)
+                for direction in DIRECTIONS:
                     if self.is_s3:
-                        keypoint_files = self._get_s3_keypoint_files(person_path)
+                        direction_prefix = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
+                        person_prefixes = self._list_s3_subdirs(direction_prefix)
+                        tqdm.write(f"Searching in : {direction_prefix}")
                     else:
-                        if not os.path.isdir(person_path):
+                        direction_dir = os.path.join(self.data_path, folder_name, f"{folder_name}_{direction}")
+                        if not os.path.exists(direction_dir):
                             continue
-                        keypoint_files = sorted(glob.glob(os.path.join(person_path,"*_keypoints.json")))
-                    files_by_class[class_label].extend(keypoint_files)
+                        person_dirs = glob.glob(os.path.join(direction_dir, f"*REAL*_{direction}"))
 
-                    # When training Transformer
-                    if self.is_training_transformer:
-                        keypoints_batch = []
-                        for kp_file in keypoint_files:
-                            try:
-                                file_path_tensor = tf.constant(kp_file)
-                                keypoints = self._load_json_from_path(file_path_tensor)
-                                keypoints = keypoints.reshape(-1) # (98, )
-                                keypoints_batch.append(keypoints)
-                            except Exception as e:
-                                print(f"file load error: {kp_file} - {e}")
+                    person_paths = person_prefixes if self.is_s3 else person_dirs
+                    for person_path in tqdm(person_paths, desc=f"Loading {folder_name}_{direction}",
+                                            position=1, leave=False):
+                        if self.is_s3:
+                            keypoint_files = self._get_s3_keypoint_files(person_path)
+                        else:
+                            if not os.path.isdir(person_path):
                                 continue
+                            keypoint_files = sorted(glob.glob(os.path.join(person_path,"*_keypoints.json")))
+                        files_by_class[class_label].extend(keypoint_files)
 
-                        if len(keypoints_batch) > 0:
-                            keypoints_batch = np.array(keypoints_batch)             # (T, 98)
-                            embeddings = self.umap_encoder.predict(keypoints_batch) # (T, 32)
+                        # When training Transformer
+                        if self.is_training_transformer:
+                            keypoints_batch = []
+                            for kp_file in tqdm(keypoint_files, desc="      Processing Frames", position=2, leave=False,
+                                                disable=len(keypoint_files)<10):
+                                try:
+                                    file_path_tensor = tf.constant(kp_file)
+                                    keypoints = self._load_json_from_path(file_path_tensor)
+                                    keypoints = keypoints.reshape(-1) # (98, )
+                                    keypoints_batch.append(keypoints)
+                                except Exception as e:
+                                    tqdm.write(f"file load error: {kp_file} - {e}")
+                                    continue
 
-                            self.videos.append({
-                                'sequence': embeddings, # 이미 (T, 32) 형태이므로 바로 사용
-                                'class_label': list(KSL_SENTENCES.keys()).index(folder_name)
-                            })
+                            if len(keypoints_batch) > 0:
+                                keypoints_batch = np.array(keypoints_batch)             # (T, 98)
+                                embeddings = self.umap_encoder.predict(keypoints_batch) # (T, 32)
+
+                                self.videos.append({
+                                    'sequence': embeddings, # 이미 (T, 32) 형태이므로 바로 사용
+                                    'class_label': list(KSL_SENTENCES.keys()).index(folder_name)
+                                })
 
         return files_by_class
 
