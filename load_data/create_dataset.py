@@ -3,6 +3,8 @@ from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SP
 
 from urllib.parse import urlparse
 import os, boto3, json, glob, random
+os.environ["KERAS_BACKEND"] = "tensorflow"
+import keras
 from typing import Optional, List, Dict, Any, Tuple
 from collections import defaultdict
 import tensorflow as tf
@@ -27,31 +29,34 @@ class TrainDataLoader:
         self.samples_per_class = samples_per_class
         self.is_training_transformer = is_training_transformer
         if self.is_training_transformer:
-            weights_path = "models/umap_models/best_model.weights.h5"
-            self.umap_encoder = tf.keras.Sequential([
-                tf.keras.layers.InputLayer(input_shape=(NUM_NODES*2, )),
-                tf.keras.layers.Flatten(),
-                tf.keras.layers.Dense(units=128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
-                tf.keras.layers.Dropout(0.2),
-
-                tf.keras.layers.Dense(units=OUTPUT_DIM, kernel_regularizer=tf.keras.regularizers.l2(0.001))
-            ])
-
-            # 가중치 로드
-            self.umap_encoder.load_weights(weights_path)
-
-            # umap_encoder_path = "models/umap_models/encoder.h5"
-            # try:
-            #     self.umap_encoder = tf.keras.models.load_model(umap_encoder_path)
+            # weights_path = "models/umap_models/best_model.weights.h5"
+            # self.umap_encoder = keras.Sequential([
+            #     keras.layers.InputLayer(input_shape=(NUM_NODES*2, )),
+            #     keras.layers.Flatten(),
+            #     keras.layers.Dense(units=128, activation='relu', kernel_regularizer=keras.regularizers.l2(0.001)),
+            #     keras.layers.Dropout(0.2),
             #
-            # except Exception as e:
-            #     print(f"Error loading encoder model: {e}")
-            #     # 또는 커스텀 객체 사용
-            #     self.umap_encoder = tf.keras.models.load_model(
-            #         umap_encoder_path,
-            #         custom_objects={'InputLayer': tf.keras.layers.InputLayer},
-            #         compile=False
-            #     )
+            #     keras.layers.Dense(units=OUTPUT_DIM, kernel_regularizer=keras.regularizers.l2(0.001))
+            # ])
+            #
+            # # 가중치 로드
+            # self.umap_encoder.load_weights(weights_path)
+
+            umap_encoder_path = "models/umap_models/encoder.keras"
+            print(f"Loading UMAP encoder model from: {umap_encoder_path}")
+            try:
+                # 모델을 통째로 불러옵니다.
+                self.umap_encoder = keras.models.load_model(umap_encoder_path)
+
+            except Exception as e:
+                print(f"Error loading encoder model: {e}")
+                # 커스텀 객체 사용
+                self.umap_encoder = keras.models.load_model(
+                    umap_encoder_path,
+                    custom_objects={'InputLayer': keras.layers.InputLayer},
+                    compile=False
+                )
+            print("UMAP encoder model loaded successfully.")
 
         self.videos = []
 
@@ -151,7 +156,8 @@ class TrainDataLoader:
                         keypoints_batch = []
                         for kp_file in keypoint_files:
                             try:
-                                keypoints = self._load_json_from_path(kp_file)
+                                file_path_tensor = tf.constant(kp_file)
+                                keypoints = self._load_json_from_path(file_path_tensor)
                                 keypoints = keypoints.reshape(-1) # (98, )
                                 keypoints_batch.append(keypoints)
                             except Exception as e:
@@ -415,7 +421,7 @@ def main_preprocess_sequence(sequence: np.ndarray) -> np.ndarray:
 
     # Umap embedding
     umap_encoder_path = os.path.join(os.path.expanduser(S3_UMAP_PATH), 'encoder.keras')
-    umap_encoder = tf.keras.models.load_model(umap_encoder_path)
+    umap_encoder = keras.models.load_model(umap_encoder_path)
     embedding = umap_encoder.predict(selected_seq)
 
     return embedding # (T, 32)

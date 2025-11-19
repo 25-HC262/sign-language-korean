@@ -1,9 +1,11 @@
 import os
+os.environ["KERAS_BACKEND"] = "tensorflow"
 import tensorflow as tf
 import datetime
 from pathlib import Path
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
+import keras
 
 # 커스텀
 from src.backbone import get_model, TFLiteModel
@@ -34,11 +36,11 @@ def train_model(data_path: str, mini_project_name: str):
     model = get_model(max_len=MAX_LEN, dropout_step=0, dim=OUTPUT_DIM, num_classes=NUM_CLASSES)
 
     if tf.config.list_physical_devices('GPU'):
-        optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=LEARNING_RATE)
+        optimizer = keras.optimizers.legacy.Adam(learning_rate=LEARNING_RATE)
     else:
-        optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
+        optimizer = keras.optimizers.Adam(learning_rate=LEARNING_RATE)
 
-    loss = tf.keras.losses.SparseCategoricalCrossentropy()
+    loss = keras.losses.SparseCategoricalCrossentropy()
     metrics = ['accuracy']
 
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
@@ -49,20 +51,20 @@ def train_model(data_path: str, mini_project_name: str):
 
     # Callbacks
     callbacks = [
-        tf.keras.callbacks.ModelCheckpoint(
+        keras.callbacks.ModelCheckpoint(
             checkpoint_path,
             monitor='val_loss',
             save_best_only=True,
             save_weights_only=False,
             verbose=1
         ),
-        tf.keras.callbacks.EarlyStopping(
+        keras.callbacks.EarlyStopping(
             monitor='val_loss',
             patience=10,
             restore_best_weights=True,
             verbose=1
         ),
-        tf.keras.callbacks.ReduceLROnPlateau(
+        keras.callbacks.ReduceLROnPlateau(
             monitor='val_loss',
             factor=0.5,
             patience=5,
@@ -120,4 +122,4 @@ if __name__ == "__main__":
     os.makedirs('../models/gloss_transformer_models', exist_ok=True)
 
     # Train model
-    history = train_model(data_path=S3_DATA_PATH, mini_project_name="output-dim:32")
+    history = train_model(data_path=S3_DATA_PATH, mini_project_name="[gloss] output:32")
