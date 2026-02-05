@@ -5,6 +5,9 @@ from .utils import Preprocess
 from .config import MAX_LEN, CHANNELS, PAD
 import tensorflow as tf
 import keras
+import itertools
+
+MBBLOCK_COUNTER = itertools.count(1)
 
 class ECA(keras.layers.Layer):
     """
@@ -155,10 +158,11 @@ name=None):
     """
 
     if name is None:
-        name = str(keras.backend.get_uid("mbblock"))
+        uid = next(MBBLOCK_COUNTER)
+        name = f"mbblock_{uid}" # str(keras.backend.get_uid("mbblock"))
     # Expansion phase
     def apply(inputs):
-        channels_in = keras.backend.int_shape(inputs)[-1]
+        channels_in = keras.ops.shape(inputs)[-1] # keras.backend.int_shape(inputs)[-1]
         channels_expand = channels_in * expand_ratio
 
         skip = inputs
@@ -188,7 +192,7 @@ name=None):
             x = keras.layers.Dropout(drop_rate, noise_shape=(None,1,1), name=name + '_drop')(x)
 
         if (channels_in == channel_size):
-            x = keras.layers.add([x, skip], name=name + '_add')
+            x = keras.layers.Add(name=name + '_add')([x, skip])
         return x
 
     return apply
@@ -324,7 +328,7 @@ def get_model(max_len=MAX_LEN, dropout_step=0, dim=98, num_classes=5):
     Returns:
         A TensorFlow Keras Model object.
     """
-    inp = keras.Input((max_len, CHANNELS))
+    inp = keras.Input(shape=(max_len, CHANNELS))
     x = keras.layers.Masking(mask_value=PAD,input_shape=(max_len,CHANNELS))(inp) #we don't need masking layer with inference
     #x = inp # 추론 시에는 해당 부분을 주석 처리 하고, 학습 시에는 326(윗) 라인을 주석 처리해야 합니다.
     ksize = 17

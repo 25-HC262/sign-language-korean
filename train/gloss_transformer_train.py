@@ -14,8 +14,8 @@ from load_data.create_dataset import TrainDataLoader, upload_file_to_s3
 
 date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M-%S")
 base_name = f"sign_language_v2_{date_idx}"
-checkpoint_path = f"checkpoints/{base_name}.h5"
-save_model = f"models/{base_name}.h5"
+checkpoint_path = f"checkpoints/{base_name}.keras"
+save_model = f"models/{base_name}.keras"
 tflite_path = f"models/gloss_transformer_models/{base_name}.tflite"
 
 def train_model(data_path: str, mini_project_name: str):
@@ -35,10 +35,7 @@ def train_model(data_path: str, mini_project_name: str):
     print("\nCreating model...")
     model = get_model(max_len=MAX_LEN, dropout_step=0, dim=OUTPUT_DIM, num_classes=NUM_CLASSES)
 
-    if tf.config.list_physical_devices('GPU'):
-        optimizer = keras.optimizers.legacy.Adam(learning_rate=LEARNING_RATE)
-    else:
-        optimizer = keras.optimizers.Adam(learning_rate=LEARNING_RATE)
+    optimizer = keras.optimizers.Adam(learning_rate=LEARNING_RATE)
 
     loss = keras.losses.SparseCategoricalCrossentropy()
     metrics = ['accuracy']
