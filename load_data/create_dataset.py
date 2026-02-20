@@ -1,11 +1,15 @@
-from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, S3_UMAP_PATH, \
-    BATCH_SIZE, OUTPUT_DIM, NUM_NODES
-
+import boto3
+import glob
+import os
+import random
 from urllib.parse import urlparse
-import os, boto3, json, glob, random
+
+from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, S3_UMAP_PATH, \
+    BATCH_SIZE, OUTPUT_DIM
+
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Dict, Any, Tuple
 from collections import defaultdict
 import tensorflow as tf
 import numpy as np
