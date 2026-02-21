@@ -178,6 +178,9 @@ CHANNELS = DIM * NUM_NODES  # x, y for each point
 3. gloss 모델 선택
     -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
     명령어 예시: `python -m model.gloss_transformer -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
+4. gloss 모델 종류 선택
+    --gmt 혹은 --gloss_model_type으로 모델 종류 선택
+    명령어 예시: `python -m model.gloss_transformer --gmt "transformer"` 혹은 `python -m model.gloss_transformer --gloss_model_type "transformer"`
 """
 def get_config_args():
     parser = argparse.ArgumentParser()
