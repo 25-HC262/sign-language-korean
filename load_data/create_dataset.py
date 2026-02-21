@@ -1,11 +1,12 @@
-import boto3
 import glob
 import os
 import random
 from urllib.parse import urlparse
 
-from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, S3_UMAP_PATH, \
-    BATCH_SIZE, OUTPUT_DIM
+import boto3
+
+from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, \
+    BATCH_SIZE, OUTPUT_DIM, STORAGE_MODE, UMAP_LOAD_PATH
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
@@ -19,26 +20,23 @@ import json
 from google.cloud import storage
 
 class TrainDataLoader:
-    def __init__(self, data_path, save_path=None, s3_save_path=None, gcs_save_path=None, samples_per_class=1000, is_training_transformer=False):
+    def __init__(self, data_path, samples_per_class=1000, is_training_transformer=False):
         self.data_path = data_path
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
-        self.is_gcp = data_path.startswith('gs://')
+        self.is_gcs = data_path.startswith('gs://')
 
         if self.is_s3:
             parsed_s3_path = urlparse(data_path)
             self.s3_bucket = parsed_s3_path.netloc
             self.s3_prefix = parsed_s3_path.path.lstrip('/')
             self.s3_client = boto3.client('s3')
-        if self.is_gcp:
+        if self.is_gcs:
             parsed_path = urlparse(data_path)
             self.gcs_bucket_name = parsed_path.netloc
             self.gcs_prefix = parsed_path.path.lstrip('/')
             self.gcs_client = storage.Client()
             self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
-        self.save_path = os.path.expanduser(save_path) if save_path is not None else None  # f"{base_path}/졸업프로젝트"
-        self.s3_save_path = s3_save_path
-        self.gcs_save_path = gcs_save_path
 
         self.samples_per_class = samples_per_class
         self.is_training_transformer = is_training_transformer
@@ -56,17 +54,15 @@ class TrainDataLoader:
             # # 가중치 로드
             # self.umap_encoder.load_weights(weights_path)
 
-            umap_encoder_path = "models/umap_models/encoder.keras"
-            print(f"Loading UMAP encoder model from: {umap_encoder_path}")
+            print(f"Loading UMAP encoder model from: {UMAP_LOAD_PATH}")
             try:
-                # 모델을 통째로 불러옵니다.
-                self.umap_encoder = keras.saving.load_model(umap_encoder_path) # keras 3 upgrade
+                self.umap_encoder = keras.saving.load_model(UMAP_LOAD_PATH) # keras 3 upgrade
 
             except Exception as e:
                 print(f"Error loading encoder model: {e}")
                 # 커스텀 객체 사용
                 self.umap_encoder = keras.saving.load_model(
-                    umap_encoder_path,
+                    UMAP_LOAD_PATH,
                     custom_objects={'InputLayer': keras.layers.InputLayer},
                     compile=False
                 )
@@ -150,7 +146,7 @@ class TrainDataLoader:
                     if self.is_s3:
                         direction_dir = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
                         person_paths = self._list_s3_subdirs(direction_dir)
-                    elif self.is_gcp:
+                    elif self.is_gcs:
                         direction_dir = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
                         person_paths = self._list_gcs_subdirs(direction_dir)
                     else:
@@ -163,7 +159,7 @@ class TrainDataLoader:
                                             position=1, leave=False):
                         if self.is_s3:
                             keypoint_files = self._get_s3_keypoint_files(person_path)
-                        elif self.is_gcp:
+                        elif self.is_gcs:
                             keypoint_files = self._get_gcs_keypoint_files(person_path)
                         else:
                             if not os.path.isdir(person_path): continue
@@ -339,7 +335,6 @@ class TrainDataLoader:
             Prefix=prefix,
             Delimiter='/')
         return [p.get('Prefix') for page in result for p in page.get('CommonPrefixes', [])]
-
     def _get_s3_keypoint_files(self, prefix):
         paginator = self.s3_client.get_paginator('list_objects_v2')
         result = paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix)
@@ -355,11 +350,19 @@ class TrainDataLoader:
         blobs = self.gcs_client.list_blobs(self.gcs_bucket_name, prefix=prefix, delimiter='/')
         return sorted([f"gs://{self.gcs_bucket_name}/{blob.name}" for blob in blobs if blob.name.endswith('_keypoints.json')])
 
+# --- 업로드 인터페이스 함수 ---
+def upload_file(local_root_path: str, upload_path: str, file_name: str = None):
+    if STORAGE_MODE == 'S':
+        upload_file_to_s3(local_root_path=local_root_path, s3_path=upload_path, file_name=file_name)
+    elif STORAGE_MODE == 'G':
+        upload_file_to_gcs(local_root_path=local_root_path, gcs_path=upload_path, file_name=file_name)
+    # STORAGE_MODE == 'L'인 경우 아무것도 하지 않음.
+
 #  --- S3 upload method ---
 def upload_file_to_s3(local_root_path: str, s3_path: str, file_name: str = None):
     '''
-    file_name=None인 경우 local_path의 전체 파일 s3 업로드
-    file_name!=None인 경우 개별 파일 s3 업로드
+    - file_name = None인 경우 local_path의 전체 파일 s3 업로드
+    - file_name != None인 경우 개별 파일 s3 업로드
     '''
     local_root = Path(local_root_path).expanduser()
     parsed_s3_path = urlparse(s3_path)
@@ -495,8 +498,7 @@ def main_preprocess_sequence(sequence: np.ndarray) -> np.ndarray:
     selected_seq = np.nan_to_num(selected_seq, 0)
 
     # Umap embedding
-    umap_encoder_path = os.path.join(os.path.expanduser(S3_UMAP_PATH), 'encoder.keras')
-    umap_encoder = keras.models.load_model(umap_encoder_path)
+    umap_encoder = keras.models.load_model(UMAP_LOAD_PATH)
     embedding = umap_encoder.predict(selected_seq)
 
     return embedding # (T, 32)
