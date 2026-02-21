@@ -1,16 +1,19 @@
+import os
+os.environ["KERAS_BACKEND"] = "tensorflow"
+from collections import deque
+
 import cv2
+import mediapipe as mp
 import numpy as np
 import tensorflow as tf
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from collections import deque
-import mediapipe as mp
 
-# -- 1. Custom Keras Layers (main_video.py에서 가져옴) --
-from tensorflow.keras.layers import Layer, Conv1D, Dense, Dropout, Add, Input, GlobalAveragePooling1D, Activation, BatchNormalization, Multiply, Reshape, Lambda
-from tensorflow.keras import backend as K
-from src.backbone import get_model, CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GLOSS_TRANSFORMER_PATH, UMAP_PATH
-from load_data.create_dataset import mediapipe_to_openpose_keypoints, main_preprocess_sequence
+import keras
+from load_data.create_dataset import mediapipe_to_openpose_keypoints, \
+    main_preprocess_sequence
+from src.backbone import CausalDWConv1D, ECA, LateDropout, \
+    MultiHeadSelfAttention
+from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, LOAD_GM
 
 # 수어 레이블 정의
 LABEL_MAP = KSL_SENTENCES
@@ -19,7 +22,6 @@ idx_to_label = {i: v for i, (k, v) in enumerate(LABEL_MAP.items())}
 # MediaPipe 초기화
 mp_holistic = mp.solutions.holistic
 
-# -- 4. 모델 로딩 --
 print("모델 로딩 중...")
 tf.get_logger().setLevel('ERROR')
 custom_objects = {
@@ -27,20 +29,20 @@ custom_objects = {
     'LateDropout': LateDropout, 'MultiHeadSelfAttention': MultiHeadSelfAttention
 }
 try:
-    model = tf.keras.models.load_model(GLOSS_TRANSFORMER_PATH, custom_objects=custom_objects)
+    model = keras.models.load_model(LOAD_GM, custom_objects=custom_objects)
     print("커스텀 모델 로딩 완료")
 except Exception as e:
     print(f"모델 로딩 실패. 컴파일 없이 다시 시도합니다. 오류: {e}")
     try:
-        model = tf.keras.models.load_model(GLOSS_TRANSFORMER_PATH, custom_objects=custom_objects, compile=False)
-        optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=0.001)
+        model = keras.models.load_model(LOAD_GM, custom_objects=custom_objects, compile=False)
+        optimizer = keras.optimizers.Adam(learning_rate=0.001)
         model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
         print("커스텀 모델 (비컴파일) 로딩 완료")
     except Exception as e2:
         print(f"최종 모델 로딩 실패: {e2}")
         model = None
 
-# -- 5. FastAPI 앱 및 WebSocket 엔드포인트 --
+# -- FastAPI 앱 및 WebSocket 엔드포인트 --
 app = FastAPI()
 
 @app.websocket("/ws")
@@ -48,7 +50,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("클라이언트가 연결되었습니다.")
 
-    # WebSocket 연결마다 고유한 시퀀스 데이터와 MediaPipe 인스턴스를 가집니다.
+    # WebSocket 연결마다 고유한 시퀀스 데이터와 MediaPipe 인스턴스를 가짐.
     sequence_data = deque(maxlen=SEQ_LEN)
     holistic = mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5, model_complexity=1)
 
