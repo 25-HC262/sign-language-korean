@@ -13,7 +13,7 @@ from load_data.create_dataset import mediapipe_to_openpose_keypoints, \
     main_preprocess_sequence
 from src.backbone import CausalDWConv1D, ECA, LateDropout, \
     MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, LOAD_GM
+from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH
 
 # 수어 레이블 정의
 LABEL_MAP = KSL_SENTENCES
@@ -29,12 +29,12 @@ custom_objects = {
     'LateDropout': LateDropout, 'MultiHeadSelfAttention': MultiHeadSelfAttention
 }
 try:
-    model = keras.models.load_model(LOAD_GM, custom_objects=custom_objects)
+    model = keras.models.load_model(GM_LOAD_PATH, custom_objects=custom_objects)
     print("커스텀 모델 로딩 완료")
 except Exception as e:
     print(f"모델 로딩 실패. 컴파일 없이 다시 시도합니다. 오류: {e}")
     try:
-        model = keras.models.load_model(LOAD_GM, custom_objects=custom_objects, compile=False)
+        model = keras.models.load_model(GM_LOAD_PATH, custom_objects=custom_objects, compile=False)
         optimizer = keras.optimizers.Adam(learning_rate=0.001)
         model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
         print("커스텀 모델 (비컴파일) 로딩 완료")
