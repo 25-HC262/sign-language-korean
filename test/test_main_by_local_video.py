@@ -5,26 +5,26 @@ Video-based Korean Sign Language Recognition using MediaPipe
 This script processes video files for sign language recognition instead of real-time webcam.
 Supports various video formats and provides analysis results.
 
-Date: June 2025
+레거시 코드이므로 수정 후 실행 필요.
 """
 
-import os
-import json
-import numpy as np
-import cv2
-import time
-from collections import deque
-import mediapipe as mp
-from PIL import Image, ImageDraw, ImageFont
-import platform
 import argparse
-from datetime import datetime
 import csv
+import json
+import os
+import platform
+from collections import deque
+from datetime import datetime
 
+import cv2
+import mediapipe as mp
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+from load_data.create_dataset import mediapipe_to_openpose_keypoints  # 포맷
 # Import custom modules
-from src.backbone import get_model, CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESHOLD, MAX_LEN, POINT_LANDMARKS, KSL_SENTENCES
-from main import mediapipe_to_openpose_keypoints, mediapipe_hands_to_openpose_format
+from src.backbone import CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
+from src.config import SEQ_LEN, MAX_LEN, POINT_LANDMARKS, KSL_SENTENCES
 
 # MediaPipe setup
 mp_holistic = mp.solutions.holistic
