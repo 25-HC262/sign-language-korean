@@ -208,7 +208,7 @@ def get_config_args():
     )
 
     args, _ = parser.parse_known_args()
-    return args.storage
+    return args
 
 args = get_config_args()
 STORAGE_MODE = args.storage
