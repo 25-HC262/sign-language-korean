@@ -1,37 +1,52 @@
 import os
-import tensorflow as tf
-import boto3
-from urllib.parse import urlparse
-import matplotlib.pyplot as plt
 import pickle
 from pathlib import Path
+from urllib.parse import urlparse
+
+import boto3
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from google.cloud import storage
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, \
+    ReduceLROnPlateau
 from umap.parametric_umap import ParametricUMAP
 from umap.parametric_umap import load_ParametricUMAP
-import wandb
 from wandb.integration.keras import WandbMetricsLogger
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from src.config import NUM_NODES, EPOCHS_FOR_UMAP, UMAP_PATH, S3_DATA_PATH, S3_UMAP_PATH, \
-    WANDB_PROJ_NAME, OUTPUT_DIM, LEARNING_RATE_FOR_UMAP, BATCH_SIZE_FOR_UMAP
-from load_data.create_dataset import TrainDataLoader, upload_file_to_s3
+
+import wandb
+from load_data.create_dataset import TrainDataLoader, upload_file
+from src.config import NUM_NODES, EPOCHS_FOR_UMAP, \
+    OUTPUT_DIM, LEARNING_RATE_FOR_UMAP, BATCH_SIZE_FOR_UMAP, WANDB_UMAP_NAME, WANDB_UMAP_PROJECT, \
+    LOAD_UMAP, L_UMAP, LOAD_DATA
+
 
 class DataDimensionReducer:
-    def __init__(self, data_path, save_path, s3_save_path, output_dim=32, samples_per_class=1000, epochs=10, learning_rate=0.001, batch_size=1024, mini_project_name="landmark-reducer-v3") -> None:
+    def __init__(self, data_path: str, save_path: str, storage_save_path=None, output_dim=32, samples_per_class=1000, epochs=10, learning_rate=0.001, batch_size=1024) -> None:
         self.data_path = data_path
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
+        self.is_gcs = data_path.startswith('gs://')
+
         if self.is_s3:
             parsed_s3_path = urlparse(data_path)
             self.s3_bucket = parsed_s3_path.netloc
             self.s3_prefix = parsed_s3_path.path.lstrip('/')
             self.s3_client = boto3.client('s3')
-        self.save_path = os.path.expanduser(save_path)  # f"{base_path}/졸업프로젝트"
-        self.s3_save_path = s3_save_path
+        if self.is_gcs:
+            parsed_path = urlparse(data_path)
+            self.gcs_bucket_name = parsed_path.netloc
+            self.gcs_prefix = parsed_path.path.lstrip('/')
+            self.gcs_client = storage.Client()
+            self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
+
+        self.save_path = os.path.abspath(os.path.expanduser(save_path))  # f"{base_path}/졸업프로젝트"
+        self.storage_save_path = storage_save_path
 
         self.checkpoint_filepath = os.path.join(self.save_path, 'best_umap_model.weights.h5')
 
         self.samples_per_class = samples_per_class
         print("Creating dataset...")
-        self.trainer = TrainDataLoader(data_path=data_path, save_path=save_path, s3_save_path=s3_save_path, samples_per_class=samples_per_class)
+        self.trainer = TrainDataLoader(data_path=data_path, samples_per_class=samples_per_class)
         self.train_dataset, self.test_dataset = self.trainer.create_umap_dataset()
 
         self.dims = (NUM_NODES*2, )  # 49*2
@@ -86,8 +101,8 @@ class DataDimensionReducer:
         ])
 
         wandb.init(
-            project=WANDB_PROJ_NAME,
-            name=mini_project_name,
+            project=WANDB_UMAP_PROJECT,
+            name=WANDB_UMAP_NAME,
             config={
                 "learning_rate": learning_rate,
                 "epochs": epochs,
@@ -172,19 +187,18 @@ class DataDimensionReducer:
                 except Exception as e:
                     print(f"Error plotting history: {e}")
 
-        upload_file_to_s3(local_root_path=self.save_path, s3_path=self.s3_save_path)
+        upload_file(local_root_path=self.save_path, upload_path=self.storage_save_path)
         wandb.finish()
-
 
 if __name__ == "__main__":
     dr = DataDimensionReducer(
-        data_path=S3_DATA_PATH,
-        save_path=UMAP_PATH,
-        s3_save_path=S3_UMAP_PATH,
+        data_path=LOAD_DATA,
+        save_path=L_UMAP,
+        storage_save_path=LOAD_UMAP,
         output_dim=OUTPUT_DIM,
         samples_per_class=2000,
         epochs=EPOCHS_FOR_UMAP,
         learning_rate=LEARNING_RATE_FOR_UMAP,
         batch_size=BATCH_SIZE_FOR_UMAP,
-        mini_project_name="98->128->32/dropout:0.1/L2:0.001/sizex2/scheduler")
+    )
     dr.train_reducer()

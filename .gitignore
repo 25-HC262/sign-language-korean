@@ -16,3 +16,6 @@ src/__pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# wandb 관련
+wandb/

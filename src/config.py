@@ -1,5 +1,7 @@
-import numpy as np
+import argparse
+import datetime
 import json
+import os
 
 # Model parameters
 THRESHOLD = 0.5
@@ -163,19 +165,108 @@ NUM_NODES = len(POINT_LANDMARKS)
 DIM = 2 # 현재 2D이므로
 CHANNELS = DIM * NUM_NODES  # x, y for each point
 
-# ============= DATA PATHS =============
-S3_DATA_PATH = 's3://openpose-keypoints'
-DATA_PATH = 'data/openpose_keypoints'
-UMAP_PATH = 'models/umap_models'
-S3_UMAP_PATH = 's3://trout-model/umap_models'
-GLOSS_TRANSFORMER_PATH = 'models/gloss_transformer_models/sign_language_v1.h5'
-S3_GLOSS_TRANSFORMER_PATH = 's3://trout-model/models'
+# ==========================================
+# 전역 패스(Path) 변수 설정
+# ==========================================
+"""
+1. 저장소 선택
+    -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
+    명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
+2. umap 모델 선택
+    -u 혹은 --umap 뒤에 모델명
+    명령어 예시: `python -m model.gloss_transformer -u "umap.keras"` 혹은 `--umap "umap.keras"`
+3. gloss 모델 선택
+    -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
+    명령어 예시: `python -m model.gloss_transformer -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
+4. gloss 모델 종류 선택
+    --gmt 혹은 --gloss_model_type으로 모델 종류 선택
+    명령어 예시: `python -m model.gloss_transformer --gmt "transformer"` 혹은 `python -m model.gloss_transformer --gloss_model_type "transformer"`
+"""
+def get_config_args():
+    parser = argparse.ArgumentParser()
 
-WANDB_PROJ_NAME = "grad-umap-project"
+    # 저장소 선택 옵션 - args.storage에 저장
+    parser.add_argument(
+        "-s", "--storage",
+        choices=["L", "S", "G"],
+        default="L",
+        help="Storage type: L(Local), S(S3), G(GCS)"
+    )
+
+    # umap 모델 선택 옵션 - args.umap에 저장
+    parser.add_argument(
+        "-u", "--umap",
+        default="encoder.keras"
+    )
+    # gloss 모델 선택 옵션 - args.gm에 저장
+    parser.add_argument(
+        "-g", "--gm", "--gloss_model",
+        default="sign_language_v1.h5"
+    )
+
+    # gloss 모델 종류 선택 옵션
+    parser.add_argument(
+        "--gmt", "--gloss_model_type",
+        default="transformer"
+    )
+
+    args, _ = parser.parse_known_args()
+    return args
+
+args = get_config_args()
+STORAGE_MODE = args.storage
+SELECTED_GM_TYPE = args.gmt
+
+date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
+
+"""TO-DO: 기본 버킷명으로 통일"""
+base_map = {
+    "G": ("gs://openpose-keypoints-gcp", "gs://trout-model/umap_models", "gs://trout-model/models", "gs://trout-models/checkpoints"),
+    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/models", "s3://trout-model/checkpoints"),
+    "L": ("data/openpose_keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints")
+}
+# 새로운 모델 저장
+names = {
+    "gm": f"gloss_{SELECTED_GM_TYPE}_{date_idx}",
+    "umap": f"umap_encoder_{date_idx}"
+}
+files = {
+    "gm_keras": f"{names['gm']}.keras", # .h5보다 .keras가 권장되므로 .keras로 통일할 것.
+    "gm_tflite": f"{names['gm']}.tflite",
+    "umap_keras": f"{names['umap']}.keras"
+}
+
+# 로컬 베이스는 항상 필요
+L_DATA, L_UMAP, L_GM, L_CKPT = base_map['L']
+os.makedirs(f'../{L_CKPT}', exist_ok=True)
+os.makedirs(f'../{L_GM}', exist_ok=True)
+os.makedirs(f'../{L_UMAP}', exist_ok=True)
+
+# LOAD_BASE: 사용자 선택 모드(STORAGE_MODE)에서 가져옴
+LOAD_DATA, LOAD_UMAP, LOAD_GM, _ = base_map.get(STORAGE_MODE, base_map["L"])
+
+# 최종 경로
+UMAP_LOAD_PATH = f'{LOAD_UMAP}/{args.umap}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
+GM_LOAD_PATH = f'{LOAD_GM}/{args.gm}'       # 프로젝트에 사용되는 최적 GLOSS MODEL
+
+# 저장 경로
+LOCAL_PATHS = {
+    "gm_ckpt": f"{L_CKPT}/{files['gm_keras']}",
+    "gm_final": f"{L_GM}/{files['gm_keras']}",
+    "gm_tflite": f"{L_GM}/{files['gm_tflite']}",
+    "umap_ckpt": f"{L_UMAP}/{files['umap_keras']}",
+    "umap_final": f"{L_UMAP}/{files['umap_keras']}"
+}
+
+# ============== WandB 설정 ==============
+WANDB_GM_PROJECT = f"grad-gloss-{SELECTED_GM_TYPE}-training"
+WANDB_GM_NAME = f"gloss-{SELECTED_GM_TYPE}-{date_idx}"
+WANDB_UMAP_PROJECT = f"grad-umap-training"
+WANDB_UMAP_NAME = f"umap-{date_idx}"
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 try:
-    with open('src/label_map.json', 'r', encoding='utf-8') as f:
+    with open('src/primary_label_map.json', 'r', encoding='utf-8') as f:
         KSL_SENTENCES = json.load(f)
 except FileNotFoundError:
     print("Warning: 'label_map.json' not found.")

@@ -1,7 +1,6 @@
 import os
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import tensorflow as tf
-import datetime
 from pathlib import Path
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
@@ -9,19 +8,15 @@ import keras
 
 # 커스텀
 from src.backbone import get_model, TFLiteModel
-from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, OUTPUT_DIM, NUM_CLASSES, WANDB_PROJ_NAME, S3_DATA_PATH, S3_GLOSS_TRANSFORMER_PATH
-from load_data.create_dataset import TrainDataLoader, upload_file_to_s3
+from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, OUTPUT_DIM, NUM_CLASSES, \
+    WANDB_GM_PROJECT, WANDB_GM_NAME, L_CKPT, LOCAL_PATHS, LOAD_GM, LOAD_DATA
+from load_data.create_dataset import TrainDataLoader
+from load_data.create_dataset import upload_file
 
-date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M-%S")
-base_name = f"sign_language_v2_{date_idx}"
-checkpoint_path = f"checkpoints/{base_name}.keras"
-save_model = f"models/{base_name}.keras"
-tflite_path = f"models/gloss_transformer_models/{base_name}.tflite"
-
-def train_model(data_path: str, mini_project_name: str):
+def train_model(data_path: str):
     wandb.init(
-        project=WANDB_PROJ_NAME,
-        name=mini_project_name,
+        project=WANDB_GM_PROJECT,
+        name=WANDB_GM_NAME,
         config={
             "learning_rate": LEARNING_RATE,
             "epochs": EPOCHS,
@@ -49,7 +44,7 @@ def train_model(data_path: str, mini_project_name: str):
     # Callbacks
     callbacks = [
         keras.callbacks.ModelCheckpoint(
-            checkpoint_path,
+            L_CKPT,
             monitor='val_loss',
             save_best_only=True,
             save_weights_only=False,
@@ -82,8 +77,8 @@ def train_model(data_path: str, mini_project_name: str):
     )
 
     print("\nSaving model...")
-    model.save(save_model)
-    upload_file_to_s3(local_root_path=str(Path(save_model).parent), s3_path=S3_GLOSS_TRANSFORMER_PATH, file_name=str(Path(save_model).name))
+    model.save(LOCAL_PATHS["gm_final"])
+    upload_file(local_root_path=str(Path(LOCAL_PATHS["gm_final"]).parent), upload_path=LOAD_GM, file_name=str(Path(Path(LOCAL_PATHS["gm_final"]).name)))
 
     # Convert to TFLite
     print("Converting to TFLite...")
@@ -101,10 +96,10 @@ def train_model(data_path: str, mini_project_name: str):
     try:
         tflite_quant_model = converter.convert()
         # Save TFLite model
-        with open(tflite_path, 'wb') as f:
+        with open(LOCAL_PATHS["gm_tflite"], 'wb') as f:
             f.write(tflite_quant_model)
         print("TFLite model saved successfully!")
-        upload_file_to_s3(local_root_path=str(Path(tflite_path).parent), s3_path=S3_GLOSS_TRANSFORMER_PATH, file_name=str(Path(tflite_model).name))
+        upload_file(local_root_path=str(Path(LOCAL_PATHS["gm_tflite"]).parent), upload_path=LOAD_GM, file_name=str(Path(LOCAL_PATHS["gm_tflite"]).name))
     except Exception as e:
         print(f"Warning: TFLite conversion failed: {e}")
 
@@ -114,9 +109,5 @@ def train_model(data_path: str, mini_project_name: str):
     return history
 
 if __name__ == "__main__":
-    # Create necessary directories
-    os.makedirs('../checkpoints', exist_ok=True)
-    os.makedirs('../models/gloss_transformer_models', exist_ok=True)
-
     # Train model
-    history = train_model(data_path=S3_DATA_PATH, mini_project_name="[gloss] output:32")
+    history = train_model(data_path=LOAD_DATA)

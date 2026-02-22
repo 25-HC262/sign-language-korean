@@ -1,16 +1,16 @@
 ﻿import json
-
-from src.config import POINT_LANDMARKS
 import os
-import tensorflow as tf
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import tensorflow as tf
+from scipy.spatial.distance import pdist, squareform
+from scipy.stats import spearmanr
 from sklearn.manifold import trustworthiness
 from sklearn.neighbors import NearestNeighbors
-from sklearn.metrics import silhouette_score, pairwise_distances
-from scipy.stats import spearmanr
-from scipy.spatial.distance import pdist, squareform
+
+from src.config import POINT_LANDMARKS, L_UMAP
 
 # def _json_to_numpy(data) -> np.ndarray:
 #     person = data
@@ -109,6 +109,7 @@ from scipy.spatial.distance import pdist, squareform
 #
 #     return selected_keypoints.astype(np.float32) # (98, 2)
 
+"""load_data.create_dataset#_json_to_numpy() 와 동일"""
 def _json_to_numpy(data) -> np.ndarray:
     person = data
     # Extract pose keypoints (25 points, 3 values each)
@@ -140,13 +141,6 @@ def _json_to_numpy(data) -> np.ndarray:
 
     right_hand_xy = right_hand_kp[:, :2]
     right_hand_conf = right_hand_kp[:, 2:3]
-
-    all_keypoints_0 = np.concatenate([
-        pose_xy,
-        face_xy,
-        left_hand_xy,
-        right_hand_xy
-    ], axis=0)
 
     # [-1, 1] 정규화
     # First, find the bounding box of all valid points
@@ -690,9 +684,8 @@ def method4_local_structure(X_original, X_embedded, k=15):
         print(f"\n✅ 모든 점이 양호한 보존율!")
 
 if __name__=="__main__":
-    LOCAL_UMAP_SAVE_PATH='../models/umap_models'
-    encoder_path = os.path.join(LOCAL_UMAP_SAVE_PATH,'encoder_98.keras')
-    decoder_path = os.path.join(LOCAL_UMAP_SAVE_PATH, 'decoder_98.keras')
+    encoder_path = os.path.join(L_UMAP,'encoder_98.keras')
+    decoder_path = os.path.join(L_UMAP, 'decoder_98.keras')
     encoder = tf.keras.models.load_model(encoder_path)
     decoder = tf.keras.models.load_model(decoder_path)
 

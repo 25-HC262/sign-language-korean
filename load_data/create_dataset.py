@@ -1,30 +1,42 @@
-from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, S3_UMAP_PATH, \
-    BATCH_SIZE, OUTPUT_DIM, NUM_NODES
-
+import glob
+import os
+import random
 from urllib.parse import urlparse
-import os, boto3, json, glob, random
+
+import boto3
+
+from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, \
+    BATCH_SIZE, OUTPUT_DIM, STORAGE_MODE, UMAP_LOAD_PATH
+
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Dict, Any, Tuple
 from collections import defaultdict
 import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 import json
+from google.cloud import storage
 
 class TrainDataLoader:
-    def __init__(self, data_path, save_path=None, s3_save_path=None, samples_per_class=1000, is_training_transformer=False):
+    def __init__(self, data_path, samples_per_class=1000, is_training_transformer=False):
         self.data_path = data_path
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
+        self.is_gcs = data_path.startswith('gs://')
+
         if self.is_s3:
             parsed_s3_path = urlparse(data_path)
             self.s3_bucket = parsed_s3_path.netloc
             self.s3_prefix = parsed_s3_path.path.lstrip('/')
             self.s3_client = boto3.client('s3')
-        self.save_path = os.path.expanduser(save_path) if save_path is not None else None  # f"{base_path}/졸업프로젝트"
-        self.s3_save_path = s3_save_path
+        if self.is_gcs:
+            parsed_path = urlparse(data_path)
+            self.gcs_bucket_name = parsed_path.netloc
+            self.gcs_prefix = parsed_path.path.lstrip('/')
+            self.gcs_client = storage.Client()
+            self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
 
         self.samples_per_class = samples_per_class
         self.is_training_transformer = is_training_transformer
@@ -42,17 +54,15 @@ class TrainDataLoader:
             # # 가중치 로드
             # self.umap_encoder.load_weights(weights_path)
 
-            umap_encoder_path = "models/umap_models/encoder.keras"
-            print(f"Loading UMAP encoder model from: {umap_encoder_path}")
+            print(f"Loading UMAP encoder model from: {UMAP_LOAD_PATH}")
             try:
-                # 모델을 통째로 불러옵니다.
-                self.umap_encoder = keras.models.load_model(umap_encoder_path)
+                self.umap_encoder = keras.saving.load_model(UMAP_LOAD_PATH) # keras 3 upgrade
 
             except Exception as e:
                 print(f"Error loading encoder model: {e}")
                 # 커스텀 객체 사용
-                self.umap_encoder = keras.models.load_model(
-                    umap_encoder_path,
+                self.umap_encoder = keras.saving.load_model(
+                    UMAP_LOAD_PATH,
                     custom_objects={'InputLayer': keras.layers.InputLayer},
                     compile=False
                 )
@@ -134,24 +144,27 @@ class TrainDataLoader:
                 pbar_sentences.set_postfix(current_class=folder_name)
                 for direction in DIRECTIONS:
                     if self.is_s3:
-                        direction_prefix = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
-                        person_prefixes = self._list_s3_subdirs(direction_prefix)
-                        tqdm.write(f"Searching in : {direction_prefix}")
+                        direction_dir = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
+                        person_paths = self._list_s3_subdirs(direction_dir)
+                    elif self.is_gcs:
+                        direction_dir = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
+                        person_paths = self._list_gcs_subdirs(direction_dir)
                     else:
                         direction_dir = os.path.join(self.data_path, folder_name, f"{folder_name}_{direction}")
-                        if not os.path.exists(direction_dir):
-                            continue
-                        person_dirs = glob.glob(os.path.join(direction_dir, f"*REAL*_{direction}"))
+                        if not os.path.exists(direction_dir): continue
+                        person_paths = glob.glob(os.path.join(direction_dir, f"*REAL*_{direction}"))
+                    tqdm.write(f"Searching in : {direction_dir}")
 
-                    person_paths = person_prefixes if self.is_s3 else person_dirs
                     for person_path in tqdm(person_paths, desc=f"Loading {folder_name}_{direction}",
                                             position=1, leave=False):
                         if self.is_s3:
                             keypoint_files = self._get_s3_keypoint_files(person_path)
+                        elif self.is_gcs:
+                            keypoint_files = self._get_gcs_keypoint_files(person_path)
                         else:
-                            if not os.path.isdir(person_path):
-                                continue
+                            if not os.path.isdir(person_path): continue
                             keypoint_files = sorted(glob.glob(os.path.join(person_path,"*_keypoints.json")))
+
                         files_by_class[class_label].extend(keypoint_files)
 
                         # When training Transformer
@@ -289,6 +302,17 @@ class TrainDataLoader:
                 )
                 file_content = s3_object['Body'].read().decode('utf-8')
                 data = json.loads(file_content)
+            elif file_path.startswith('gs://'):
+                parsed_gcs_path = urlparse(file_path)
+
+                gcs_bucket_name = parsed_gcs_path.netloc
+                blob_name = parsed_gcs_path.path.lstrip('/')
+
+                gcs_bucket = self.gcs_client.bucket(gcs_bucket_name)
+
+                blob = gcs_bucket.blob(blob_name)
+                file_content = blob.download_as_text()
+                data = json.loads(file_content) # 'utf-8' 설정 디폴트
             else:
                 with open(file_path, 'r') as f:
                     data = json.load(f)
@@ -303,6 +327,7 @@ class TrainDataLoader:
         except Exception as e:
             raise ValueError(f"Error processing {file_path_tensor.numpy().decode('utf-8')}: {e}")
 
+    #  --- S3 exclusive helper method ---
     def _list_s3_subdirs(self, prefix):
         paginator = self.s3_client.get_paginator('list_objects_v2')
         result = paginator.paginate(
@@ -310,17 +335,34 @@ class TrainDataLoader:
             Prefix=prefix,
             Delimiter='/')
         return [p.get('Prefix') for page in result for p in page.get('CommonPrefixes', [])]
-
     def _get_s3_keypoint_files(self, prefix):
         paginator = self.s3_client.get_paginator('list_objects_v2')
         result = paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix)
         return sorted([f"s3://{self.s3_bucket}/{o.get('Key')}" for page in result for o in page.get(
             'Contents', []) if o.get('Key').endswith('_keypoints.json')])
 
+    #  --- GCP exclusive helper method ---
+    def _list_gcs_subdirs(self, prefix):
+        blobs = self.gcs_client.list_blobs(self.gcs_bucket_name, prefix=prefix, delimiter='/')
+        list(blobs) # 호출을 통해 prefixes를 채움.
+        return list(blobs.prefixes)
+    def _get_gcs_keypoint_files(self, prefix):
+        blobs = self.gcs_client.list_blobs(self.gcs_bucket_name, prefix=prefix, delimiter='/')
+        return sorted([f"gs://{self.gcs_bucket_name}/{blob.name}" for blob in blobs if blob.name.endswith('_keypoints.json')])
+
+# --- 업로드 인터페이스 함수 ---
+def upload_file(local_root_path: str, upload_path: str, file_name: str = None):
+    if STORAGE_MODE == 'S':
+        upload_file_to_s3(local_root_path=local_root_path, s3_path=upload_path, file_name=file_name)
+    elif STORAGE_MODE == 'G':
+        upload_file_to_gcs(local_root_path=local_root_path, gcs_path=upload_path, file_name=file_name)
+    # STORAGE_MODE == 'L'인 경우 아무것도 하지 않음.
+
+#  --- S3 upload method ---
 def upload_file_to_s3(local_root_path: str, s3_path: str, file_name: str = None):
     '''
-    file_name=None인 경우 local_path의 전체 파일 s3 업로드
-    file_name!=None인 경우 개별 파일 s3 업로드
+    - file_name = None인 경우 local_path의 전체 파일 s3 업로드
+    - file_name != None인 경우 개별 파일 s3 업로드
     '''
     local_root = Path(local_root_path).expanduser()
     parsed_s3_path = urlparse(s3_path)
@@ -349,6 +391,38 @@ def upload_file_to_s3(local_root_path: str, s3_path: str, file_name: str = None)
         try:
             s3_client.upload_file(local_file_path, save_bucket, s3_key)
             print(f"  Uploaded {local_file_path} to s3://{save_bucket}/{s3_key}")
+        except Exception as e:
+            print(f"  Error uploading {local_file_path}: {e}")
+
+#  --- GCP upload method ---
+def upload_file_to_gcs(local_root_path: str, gcs_path: str, file_name: str = None):
+    local_root = Path(local_root_path).expanduser()
+    parsed_gcs_path = urlparse(gcs_path)
+    bucket_name = parsed_gcs_path.netloc
+    save_prefix = parsed_gcs_path.path.lstrip('/')
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+
+    files_to_upload = []
+    if file_name is None:
+        print(f"Preparing to upload directory {local_root} to gs://{bucket_name}/{save_prefix}")
+        for local_path in local_root.rglob('*'):
+            if local_path.is_file():
+                gcs_key = os.path.join(save_prefix, str(local_path.relative_to(local_root)))
+                files_to_upload.append((local_path, gcs_key))
+    else:
+        local_file = local_root / file_name
+        print(f"Preparing to upload file {local_file} to gs://{bucket_name}/{save_prefix}")
+        if local_file.is_file():
+            gcs_key = os.path.join(save_prefix, file_name)
+            files_to_upload.append((local_file, gcs_key))
+
+    for local_file_path, gcs_key in files_to_upload:
+        try:
+            blob = bucket.blob(gcs_key)
+            blob.upload_from_filename(str(local_file_path))
+            print(f"  Uploaded {local_file_path} to gs://{bucket_name}/{gcs_key}")
         except Exception as e:
             print(f"  Error uploading {local_file_path}: {e}")
 
@@ -424,8 +498,7 @@ def main_preprocess_sequence(sequence: np.ndarray) -> np.ndarray:
     selected_seq = np.nan_to_num(selected_seq, 0)
 
     # Umap embedding
-    umap_encoder_path = os.path.join(os.path.expanduser(S3_UMAP_PATH), 'encoder.keras')
-    umap_encoder = keras.models.load_model(umap_encoder_path)
+    umap_encoder = keras.models.load_model(UMAP_LOAD_PATH)
     embedding = umap_encoder.predict(selected_seq)
 
     return embedding # (T, 32)
