@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import boto3
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, \
-    BATCH_SIZE, OUTPUT_DIM, STORAGE_MODE, UMAP_LOAD_PATH
+    BATCH_SIZE, OUTPUT_DIM, STORAGE_MODE, UMAP_LOAD_PATH, TEST_SPLIT
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
@@ -96,7 +96,7 @@ class TrainDataLoader:
         print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
         return train_dataset, validation_dataset
 
-    def create_transformer_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
+    def create_transformer_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
         # self.videos 구성
         self._get_all_filepaths()
         def _data_generator():
@@ -115,24 +115,29 @@ class TrainDataLoader:
                 tf.TensorSpec(shape=(), dtype=tf.int32)
             )
         )
-        full_dataset = full_dataset.shuffle(buffer_size=1024)
+        full_dataset = full_dataset.shuffle(buffer_size=1024, seed=42, reshuffle_each_iteration=False) # 에폭마다 데이터 섞임 방지
         dataset_size = len(self.videos)
-        val_size = int(dataset_size*VALIDATION_SPLIT)
-        train_size = dataset_size-val_size
+        test_size = int(dataset_size*TEST_SPLIT)
+        val_size = int(dataset_size*(1-TEST_SPLIT)*VALIDATION_SPLIT) # 남은 데이터 1:1-VAL로 분리
+        train_size = dataset_size-test_size-val_size
 
-        val_dataset = full_dataset.take(val_size)
-        train_dataset = full_dataset.skip(val_size)
+        test_dataset = full_dataset.take(test_size)
+        val_dataset = full_dataset.skip(test_size).take(val_size)
+        train_dataset = full_dataset.skip(test_size+val_size)
 
-        train_dataset = train_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
-        val_dataset = val_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+        test_dataset = test_dataset.cache().batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE) # cache 설정으로 메모리에 올려 속도 극대화
+        val_dataset = val_dataset.cache().batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+        train_dataset = train_dataset.cache().batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE) # OoM이 난다면 해당 설정을 제거해야 함.
 
         print(f"전체 데이터셋 크기: {dataset_size}")
         print(f"훈련 데이터셋 크기 (예상): {train_size}")
-        print(f"검증 데이터셋 크기 (예상): {val_size}")
+        print(f"검증 데이터셋 크기 (예상): {test_size}")
+        print(f"테스트 데이터셋 크기 (예상): {test_size}")
         print("\nTrain Dataset Spec:\n", train_dataset)
         print("\nValidation Dataset Spec:\n", val_dataset)
+        print("\nTest Dataset Spec:\n", test_dataset)
 
-        return train_dataset, val_dataset
+        return train_dataset, val_dataset, test_dataset
 
     def _get_all_filepaths(self) -> dict:
         print(f"\nStarting data loading from: {self.data_path}")

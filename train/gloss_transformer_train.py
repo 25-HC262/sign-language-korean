@@ -24,9 +24,9 @@ def train_model(data_path: str):
         }
     )
     print("\nLoading training data...")
-    train_dataset, val_dataset = TrainDataLoader(data_path=data_path, is_training_transformer=True).create_transformer_dataset()
+    train_dataset, val_dataset, test_dataset = TrainDataLoader(data_path=data_path, is_training_transformer=True).create_transformer_dataset()
 
-    # Create model
+    # 1. 모델 구축
     print("\nCreating model...")
     model = get_model(max_len=MAX_LEN, dropout_step=0, dim=OUTPUT_DIM, num_classes=NUM_CLASSES)
 
@@ -35,13 +35,14 @@ def train_model(data_path: str):
     loss = keras.losses.SparseCategoricalCrossentropy()
     metrics = ['accuracy']
 
+    # 2. 모델 생성
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
     print(f"Model compiled successfully!")
     print(f"Input shape: {model.input_shape}")
     print(f"Output shape: {model.output_shape}")
 
-    # Callbacks
+    # 3. 모델 학습 - 콜백 설정
     callbacks = [
         keras.callbacks.ModelCheckpoint(
             L_CKPT,
@@ -66,7 +67,7 @@ def train_model(data_path: str):
         WandbMetricsLogger()
     ]
 
-    # Train model
+    # 4. 모델 학습
     print("\nStarting training...")
     history = model.fit(
         train_dataset,
@@ -76,11 +77,12 @@ def train_model(data_path: str):
         verbose=1
     )
 
+    # 5. 모델 저장
     print("\nSaving model...")
     model.save(LOCAL_PATHS["gm_final"])
     upload_file(local_root_path=str(Path(LOCAL_PATHS["gm_final"]).parent), upload_path=LOAD_GM, file_name=str(Path(Path(LOCAL_PATHS["gm_final"]).name)))
 
-    # Convert to TFLite
+    # 6. 경량화 모델 변환
     print("Converting to TFLite...")
     tflite_model = TFLiteModel(model)  # Pass single model, not list
 
@@ -95,7 +97,7 @@ def train_model(data_path: str):
 
     try:
         tflite_quant_model = converter.convert()
-        # Save TFLite model
+        # 7. 경량화 모델 저장
         with open(LOCAL_PATHS["gm_tflite"], 'wb') as f:
             f.write(tflite_quant_model)
         print("TFLite model saved successfully!")
@@ -104,6 +106,13 @@ def train_model(data_path: str):
         print(f"Warning: TFLite conversion failed: {e}")
 
     print("Training completed!")
+
+    # 8. 모델 평가
+    eval_results = model.evaluate(test_dataset, return_dict=True)
+    print("Model Test Results: ")
+    print(*(f"  > {k}: {v}", for k, v in eval_results.items()), sep='\n')
+
+    wandb.log({f"test_{k}": v for k, v in eval_results.items()})
     wandb.finish()
 
     return history

@@ -20,6 +20,7 @@ BATCH_SIZE_FOR_UMAP = 1024
 EPOCHS = 300
 EPOCHS_FOR_UMAP = 100
 VALIDATION_SPLIT = 0.2
+TEST_SPLIT = 0.05
 OUTPUT_DIM = 32
 
 # ============= POSE KEYPOINTS (0-24) =============
@@ -263,6 +264,9 @@ WANDB_GM_PROJECT = f"grad-gloss-{SELECTED_GM_TYPE}-training"
 WANDB_GM_NAME = f"gloss-{SELECTED_GM_TYPE}-{date_idx}"
 WANDB_UMAP_PROJECT = f"grad-umap-training"
 WANDB_UMAP_NAME = f"umap-{date_idx}"
+
+# ============== optuna 설정 ==============
+OPTUNA_TRIALS_PATH = "sqlite:////content/drive/MyDrive/optuna_trials.db" # 로컬 수정 필요
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 try:
