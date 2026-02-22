@@ -110,7 +110,7 @@ def train_model(data_path: str):
     # 8. 모델 평가
     eval_results = model.evaluate(test_dataset, return_dict=True)
     print("Model Test Results: ")
-    print(*(f"  > {k}: {v}", for k, v in eval_results.items()), sep='\n')
+    print(*(f"  > {k}: {v:.3f}", for k, v in eval_results.items()), sep='\n')
 
     wandb.log({f"test_{k}": v for k, v in eval_results.items()})
     wandb.finish()
