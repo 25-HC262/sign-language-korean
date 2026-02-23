@@ -77,8 +77,6 @@ def train_model(data_path: str,
         loss=keras.losses.SparseCategoricalCrossentropy(),
         metrics=['accuracy']
     )
-    wandb.watch(model, log="all", log_freq=10)
-
     print(f"Model compiled successfully!")
     print(f"Input shape: {model.input_shape}")
     print(f"Output shape: {model.output_shape}")

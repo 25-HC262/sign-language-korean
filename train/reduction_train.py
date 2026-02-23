@@ -174,7 +174,6 @@ class DataDimensionReducer:
         )
         epochs //= 10    # 모델은 총 에폭수 = n_training_epochs*loss_report_frequency(10) 로 계산하므로
         self.embedder.n_training_epochs = epochs
-        wandb.watch(self.encoder, log="all", log_freq=10)
 
     def train_reducer(self):
         print("Converting tensorflow dataset to numpy array for UMAP fitting...")
