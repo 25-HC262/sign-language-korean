@@ -364,5 +364,5 @@ def get_model(max_len=MAX_LEN, dropout_step=0, dim=98, num_classes=5):
     x = keras.layers.Dense(dim*2,activation=None,name='top_conv')(x)
     x = keras.layers.GlobalAveragePooling1D()(x)
     x = LateDropout(0.8, start_step=dropout_step)(x)
-    x = keras.layers.Dense(num_classes, name='classifier', activation='softmax')(x)
+    x = keras.layers.Dense(num_classes, name='classifier', activation='softmax', dtype='float32')(x) # fp16 가속 설정을 위한 데이터 누락 방지
     return keras.Model(inp, x)
