@@ -10,24 +10,7 @@ from optuna.storages import RDBStorage
 from load_data.create_dataset import TrainDataLoader
 from src.backbone import get_model
 from src.config import OPTUNA_TRIALS_PATH, LOAD_DATA, EPOCHS, OUTPUT_DIM, NUM_CLASSES, L_CKPT, \
-    SUBSET_RATIO
-
-# optuna 세팅
-OPTUNA_STUDY_NAME = "transformers_optuna_study"
-
-storage = RDBStorage(url=OPTUNA_TRIALS_PATH)
-study = optuna.create_study(
-    study_name=OPTUNA_STUDY_NAME,
-    direction="maximize",
-    storage=storage,
-    load_if_exists=True
-)
-
-# 데이터 로드
-loader = TrainDataLoader(data_path=LOAD_DATA, is_training_transformer=True)
-
-# 데이터 사용 비율 설정
-subset_ratio = SUBSET_RATIO
+    SUBSET_RATIO, BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS
 
 def objective(trial):
     # 1. 하이퍼파라미터 탐색 공간 정의
@@ -105,38 +88,61 @@ if __name__=="__main__":
         for i, gpu in enumerate(gpus):
             print(f" - GPU [{i}]: {gpu}")
 
+    """TO-DO
+    transformer에서 다른 모델들로 확장
+    """
+    def get_optuna_config():
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "-m", "--model",
+            default=OPTUNA_MODEL
+        )
+        parser.add_argument(
+            "-n", "--name", "--study_name",
+            default=OPTUNA_STUDY_NAME
+        )
+        # 데이터 사용 비율 설정
+        parser.add_argument(
+            "--sr", "--subset_ratio",
+            type=float,
+            default=SUBSET_RATIO
+        )
+        # 탐색 횟수
+        parser.add_argument(
+            "--nt", "--n_trials",
+            type=int,
+            default=N_TRIALS
+        )
+        args, _ = parser.parse_known_args()
+        print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
+        return args
+    args = get_optuna_config()
+    # 사용자 옵션
+    study_name = args.name
+    subset_ratio = args.sr
+    n_trials = args.nt
+
+    # optuna 세팅
+    storage = RDBStorage(url=OPTUNA_TRIALS_PATH)
     study = optuna.create_study(
-        study_name=OPTUNA_STUDY_NAME,
+        study_name=study_name,
         direction="maximize",
         storage=storage,
-        load_if_exists=True # 이미 DB가 있다면 이어서 함
+        load_if_exists=True
     )
+
+    # 데이터 로드
+    loader = TrainDataLoader(data_path=LOAD_DATA, is_training_transformer=True)
+
+    print(f" ============== parameter trials {n_trials}번 시도 시작! ============== ")
+    study.optimize(objective, n_trials=n_trials)
 
     print(f"Best value: {study.best_value}")
     print(f"Best params: {study.best_params}")
 
     # 최적 파라미터 추출
-    import json
-    with open("best_params.json", "w") as f:
+    import json, datetime
+    date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
+    with open(BEST_PARAMS_PATH, "w") as f:
         json.dump(study.best_params, f)
-
-    """TO-DO
-    transformer에서 다른 모델들로 확장
-    """
-    # def get_optuna_config():
-    #     parser = argparse.ArgumentParser()
-    #
-    #     parser.add_argument(
-    #         "-m", "--model",
-    #         default="transformer"
-    #     )
-    #     parser.add_argument(
-    #         "--sn", "--study_name",
-    #         default="transformer"
-    #     )
-    #
-    #     args, _ = parser.parse_known_args()
-    #     return args
-    # args = get_optuna_config()
-    # MODEL = args.model
-    # STUDY_NAME = args.sn
