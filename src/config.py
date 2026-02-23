@@ -213,6 +213,7 @@ def get_config_args():
     )
 
     args, _ = parser.parse_known_args()
+    print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
     return args
 
 args = get_config_args()
@@ -223,8 +224,8 @@ date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 
 """TO-DO: 기본 버킷명으로 통일"""
 base_map = {
-    "G": ("gs://openpose-keypoints-gcp", "gs://trout-model/umap_models", "gs://trout-model/models", "gs://trout-models/checkpoints"),
-    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/models", "s3://trout-model/checkpoints"),
+    "G": ("gs://openpose-keypoints-gcp", "gs://trout-model/umap_models", "gs://trout-model/gloss_models", "gs://trout-models/checkpoints"),
+    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints"),
     "L": ("data/openpose_keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints")
 }
 # 새로운 모델 저장
@@ -240,9 +241,9 @@ files = {
 
 # 로컬 베이스는 항상 필요
 L_DATA, L_UMAP, L_GM, L_CKPT = base_map['L']
-os.makedirs(f'../{L_CKPT}', exist_ok=True)
-os.makedirs(f'../{L_GM}', exist_ok=True)
-os.makedirs(f'../{L_UMAP}', exist_ok=True)
+os.makedirs(L_CKPT, exist_ok=True)
+os.makedirs(L_GM, exist_ok=True)
+os.makedirs(L_UMAP, exist_ok=True)
 
 # LOAD_BASE: 사용자 선택 모드(STORAGE_MODE)에서 가져옴
 LOAD_DATA, LOAD_UMAP, LOAD_GM, _ = base_map.get(STORAGE_MODE, base_map["L"])
@@ -267,8 +268,12 @@ WANDB_UMAP_PROJECT = f"grad-umap-training"
 WANDB_UMAP_NAME = f"umap-{date_idx}"
 
 # ============== optuna 설정 ==============
-OPTUNA_TRIALS_PATH = "sqlite:////content/drive/MyDrive/optuna_trials.db" # 로컬 수정 필요
+OPTUNA_TRIALS_PATH = "sqlite:///optuna_trials.db" # 로컬 수정 필요
 SUBSET_RATIO = 0.05
+OPTUNA_STUDY_NAME = "transformers_optuna_study"
+OPTUNA_MODEL = "transformer"
+BEST_PARAMS_PATH = f"{L_GM}/best_params-{date_idx}.json"
+N_TRIALS = 20
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 try:
