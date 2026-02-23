@@ -102,7 +102,10 @@ class TrainDataLoader:
         print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
         return train_dataset, validation_dataset
 
-    def create_transformer_dataset(self, batch_size=None) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
+    def create_transformer_dataset(self, batch_size=None, max_len=None) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
+        if max_len is not None:
+            self.max_len = max_len
+
         # self.videos 구성
         self._get_all_filepaths()
         def _data_generator():

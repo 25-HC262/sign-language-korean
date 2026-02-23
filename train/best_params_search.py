@@ -21,7 +21,7 @@ def objective(trial):
     sequence_length = trial.suggest_int("sequence_length", 100, 380)
 
     # 2. 데이터 불러오기
-    train_dataset, val_dataset, _ = loader.create_transformer_dataset(batch_size=batch_size)
+    train_dataset, val_dataset, _ = loader.create_transformer_dataset(batch_size=batch_size, max_len=sequence_length)
     # 2-1. 학습 데이터 줄이기
     num_train = int(loader.train_size * subset_ratio)
     train_dataset = train_dataset.shuffle(buffer_size=1000, seed=42)
@@ -88,7 +88,8 @@ if __name__=="__main__":
         for i, gpu in enumerate(gpus):
             print(f" - GPU [{i}]: {gpu}")
 
-    """TO-DO
+    """
+    TO-DO
     transformer에서 다른 모델들로 확장
     """
     def get_optuna_config():

@@ -18,13 +18,12 @@ def train_model(data_path: str,
                 learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
                 max_sequence_len: int=MAX_LEN
                 ):
-    print(" ============== 받은 하이퍼파라미터 ============== ")
-    print(f"    > learning_rate: {learning_rate}")
-    print(f"    > epochs: {epochs}")
-    print(f"    > batch_size: {batch_size}")
-    print(f"    > weight_decay: {weight_decay}")
-    print(f"    > max_sequence_len: {max_sequence_len}")
-
+    # print(" ============== 받은 하이퍼파라미터 ============== ")
+    # print(f"    > learning_rate: {learning_rate}")
+    # print(f"    > epochs: {epochs}")
+    # print(f"    > batch_size: {batch_size}")
+    # print(f"    > weight_decay: {weight_decay}")
+    # print(f"    > max_sequence_len: {max_sequence_len}")
 
     wandb.init(
         project=WANDB_GM_PROJECT,
@@ -124,10 +123,10 @@ def train_model(data_path: str,
 
     return history
 
-"""
-명령어 예시: python -m train.gloss_transformer_train --storage L --lr 0.4 --bs 64 --epochs 120 --wd 0.03 --msl 170
-"""
 def get_model_args():
+    """
+    명령어 예시: python -m train.gloss_transformer_train --storage L --lr 0.4 --bs 64 --epochs 120 --wd 0.03 --msl 170
+    """
     import argparse
     parser = argparse.ArgumentParser()
 
