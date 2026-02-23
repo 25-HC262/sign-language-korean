@@ -37,7 +37,7 @@ def train_model(data_path: str,
         }
     )
     print("\nLoading training data...")
-    train_dataset, val_dataset, test_dataset = TrainDataLoader(data_path=data_path, is_training_transformer=True).create_transformer_dataset(batch_size=batch_size)
+    train_dataset, val_dataset, test_dataset = TrainDataLoader(data_path=data_path, max_len=max_sequence_len, is_training_transformer=True).create_transformer_dataset(batch_size=batch_size)
 
     # 1. 모델 생성
     print("\nCreating model...")

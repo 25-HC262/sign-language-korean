@@ -20,9 +20,10 @@ import json
 from google.cloud import storage
 
 class TrainDataLoader:
-    def __init__(self, data_path, samples_per_class=1000, is_training_transformer=False):
+    def __init__(self, data_path, max_len=MAX_LEN, samples_per_class=1000, is_training_transformer=False):
         self.data_path = data_path
         self.batch_size = BATCH_SIZE
+        self.max_len = max_len
         # 데이터셋 크기 저장
         self.train_size = None
         self.val_size = None
@@ -107,16 +108,16 @@ class TrainDataLoader:
         def _data_generator():
             for video in self.videos:
                 seq = video['sequence']
-                if len(seq) > MAX_LEN:
-                    seq = seq[:MAX_LEN]
+                if len(seq) > self.max_len:
+                    seq = seq[:self.max_len]
                 else:
-                    padding = np.zeros((MAX_LEN - len(seq), OUTPUT_DIM))
+                    padding = np.zeros((self.max_len - len(seq), OUTPUT_DIM))
                     seq = np.concatenate([seq, padding], axis=0)
                 yield seq.astype(np.float32), np.int32(video['class_label'])
         full_dataset = tf.data.Dataset.from_generator(
             _data_generator, # 함수 자체 전달
             output_signature=(
-                tf.TensorSpec(shape=(MAX_LEN, OUTPUT_DIM), dtype=tf.float32),
+                tf.TensorSpec(shape=(self.max_len, OUTPUT_DIM), dtype=tf.float32),
                 tf.TensorSpec(shape=(), dtype=tf.int32)
             )
         )
@@ -466,13 +467,13 @@ def mediapipe_to_openpose_keypoints(results, image_width, image_height):
     return np.concatenate([pose, face, left_hand, right_hand], axis=0)
 
 # 인코더 통과한 데이터를 리턴함.
-def main_preprocess_sequence(sequence: np.ndarray) -> np.ndarray:
+def main_preprocess_sequence(sequence: np.ndarray, max_len: int) -> np.ndarray:
     sequence = np.array(sequence)
     original_len = len(sequence)
 
-    if original_len > MAX_LEN: sequence = sequence[:MAX_LEN]
+    if original_len > max_len: sequence = sequence[:max_len]
     else:
-        padding = np.zeros((MAX_LEN - original_len, sequence.shape[1], sequence.shape[2]))
+        padding = np.zeros((max_len - original_len, sequence.shape[1], sequence.shape[2]))
         sequence = np.concatenate([sequence, padding], axis=0)
 
     # Padding 프레임 제외 (원본 길이까지만)
@@ -507,7 +508,7 @@ def main_preprocess_sequence(sequence: np.ndarray) -> np.ndarray:
     selected_seq = normalized_sequence[:, POINT_LANDMARKS, :]  # (MAX_LEN, 49, 2)
 
     # Flatten
-    selected_seq = selected_seq.reshape(MAX_LEN, -1)  # (MAX_LEN, 98)
+    selected_seq = selected_seq.reshape(max_len, -1)  # (MAX_LEN, 98)
 
     # NaN 처리
     selected_seq = np.nan_to_num(selected_seq, 0)
