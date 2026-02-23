@@ -264,6 +264,12 @@ WANDB_GM_NAME = f"gloss-{SELECTED_GM_TYPE}-{date_idx}"
 WANDB_UMAP_PROJECT = f"grad-umap-training"
 WANDB_UMAP_NAME = f"umap-{date_idx}"
 
+# ========= WandB run organization (grouping & tagging) 설정 =========
+WANDB_GM_GROUP = SELECTED_GM_TYPE
+WANDB_UMAP_GROUP = "umap"
+WANDB_GM_TAGS = [SELECTED_GM_TYPE, f"dim{OUTPUT_DIM}", f"classes{NUM_CLASSES}"]
+WANDB_UMAP_TAGS = ["umap", f"dim{OUTPUT_DIM}"]
+
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 try:
     with open('src/primary_label_map.json', 'r', encoding='utf-8') as f:
