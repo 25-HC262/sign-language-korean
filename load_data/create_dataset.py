@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import boto3
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, \
-    BATCH_SIZE, OUTPUT_DIM, STORAGE_MODE, UMAP_LOAD_PATH
+    BATCH_SIZE, STORAGE_MODE, UMAP_LOAD_PATH, TEST_SPLIT, UMAP_OUTPUT_DIM
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
@@ -20,8 +20,14 @@ import json
 from google.cloud import storage
 
 class TrainDataLoader:
-    def __init__(self, data_path, samples_per_class=1000, is_training_transformer=False):
+    def __init__(self, data_path, max_len=MAX_LEN, samples_per_class=1000, is_training_transformer=False):
         self.data_path = data_path
+        self.batch_size = BATCH_SIZE
+        self.max_len = max_len
+        # 데이터셋 크기 저장
+        self.train_size = None
+        self.val_size = None
+        self.test_size = None
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
         self.is_gcs = data_path.startswith('gs://')
@@ -96,43 +102,56 @@ class TrainDataLoader:
         print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
         return train_dataset, validation_dataset
 
-    def create_transformer_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
+    def create_transformer_dataset(self, batch_size=None, max_len=None) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
+        if max_len is not None:
+            self.max_len = max_len
+
         # self.videos 구성
         self._get_all_filepaths()
         def _data_generator():
             for video in self.videos:
                 seq = video['sequence']
-                if len(seq) > MAX_LEN:
-                    seq = seq[:MAX_LEN]
+                if len(seq) > self.max_len:
+                    seq = seq[:self.max_len]
                 else:
-                    padding = np.zeros((MAX_LEN - len(seq), OUTPUT_DIM))
+                    padding = np.zeros((self.max_len - len(seq), UMAP_OUTPUT_DIM))
                     seq = np.concatenate([seq, padding], axis=0)
                 yield seq.astype(np.float32), np.int32(video['class_label'])
         full_dataset = tf.data.Dataset.from_generator(
             _data_generator, # 함수 자체 전달
             output_signature=(
-                tf.TensorSpec(shape=(MAX_LEN, OUTPUT_DIM), dtype=tf.float32),
+                tf.TensorSpec(shape=(self.max_len, UMAP_OUTPUT_DIM), dtype=tf.float32),
                 tf.TensorSpec(shape=(), dtype=tf.int32)
             )
         )
-        full_dataset = full_dataset.shuffle(buffer_size=1024)
+        full_dataset = full_dataset.shuffle(buffer_size=1024, seed=42, reshuffle_each_iteration=False) # 에폭마다 데이터 섞임 방지
         dataset_size = len(self.videos)
-        val_size = int(dataset_size*VALIDATION_SPLIT)
-        train_size = dataset_size-val_size
+        self.test_size = int(dataset_size*TEST_SPLIT)
+        self.val_size = int(dataset_size*(1-TEST_SPLIT)*VALIDATION_SPLIT) # 남은 데이터 1:1-VAL로 분리
+        self.train_size = dataset_size-self.test_size-self.val_size
 
-        val_dataset = full_dataset.take(val_size)
-        train_dataset = full_dataset.skip(val_size)
+        test_dataset = full_dataset.take(self.test_size)
+        val_dataset = full_dataset.skip(self.test_size).take(self.val_size)
+        train_dataset = full_dataset.skip(self.test_size+self.val_size)
 
-        train_dataset = train_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
-        val_dataset = val_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+        target_batch_size = batch_size if batch_size is not None else self.batch_size
+
+        def finalize(ds: tf.data.Dataset):
+            return ds.cache().batch(target_batch_size).prefetch(tf.data.AUTOTUNE)
+
+        test_dataset = finalize(test_dataset) # cache 설정으로 메모리에 올려 속도 극대화
+        val_dataset = finalize(val_dataset)
+        train_dataset = finalize(train_dataset) # OoM이 난다면 해당 설정을 제거해야 함.
 
         print(f"전체 데이터셋 크기: {dataset_size}")
-        print(f"훈련 데이터셋 크기 (예상): {train_size}")
-        print(f"검증 데이터셋 크기 (예상): {val_size}")
+        print(f"훈련 데이터셋 크기 (예상): {self.train_size}")
+        print(f"검증 데이터셋 크기 (예상): {self.val_size}")
+        print(f"테스트 데이터셋 크기 (예상): {self.test_size}")
         print("\nTrain Dataset Spec:\n", train_dataset)
         print("\nValidation Dataset Spec:\n", val_dataset)
+        print("\nTest Dataset Spec:\n", test_dataset)
 
-        return train_dataset, val_dataset
+        return train_dataset, val_dataset, test_dataset
 
     def _get_all_filepaths(self) -> dict:
         print(f"\nStarting data loading from: {self.data_path}")
@@ -451,13 +470,13 @@ def mediapipe_to_openpose_keypoints(results, image_width, image_height):
     return np.concatenate([pose, face, left_hand, right_hand], axis=0)
 
 # 인코더 통과한 데이터를 리턴함.
-def main_preprocess_sequence(sequence: np.ndarray) -> np.ndarray:
+def main_preprocess_sequence(sequence: np.ndarray, max_len: int) -> np.ndarray:
     sequence = np.array(sequence)
     original_len = len(sequence)
 
-    if original_len > MAX_LEN: sequence = sequence[:MAX_LEN]
+    if original_len > max_len: sequence = sequence[:max_len]
     else:
-        padding = np.zeros((MAX_LEN - original_len, sequence.shape[1], sequence.shape[2]))
+        padding = np.zeros((max_len - original_len, sequence.shape[1], sequence.shape[2]))
         sequence = np.concatenate([sequence, padding], axis=0)
 
     # Padding 프레임 제외 (원본 길이까지만)
@@ -492,7 +511,7 @@ def main_preprocess_sequence(sequence: np.ndarray) -> np.ndarray:
     selected_seq = normalized_sequence[:, POINT_LANDMARKS, :]  # (MAX_LEN, 49, 2)
 
     # Flatten
-    selected_seq = selected_seq.reshape(MAX_LEN, -1)  # (MAX_LEN, 98)
+    selected_seq = selected_seq.reshape(max_len, -1)  # (MAX_LEN, 98)
 
     # NaN 처리
     selected_seq = np.nan_to_num(selected_seq, 0)
