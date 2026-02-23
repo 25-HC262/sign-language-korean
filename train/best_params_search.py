@@ -26,12 +26,12 @@ def objective(trial):
     # 2-1. 학습 데이터 줄이기
     num_train = int(loader.train_size * subset_ratio)
     train_dataset = train_dataset.shuffle(buffer_size=1000, seed=42)
-    small_train_dataset = train_dataset.take(num_train)
+    small_train_dataset = train_dataset.take(max(num_train,1))
 
     # 2-2. 검증 데이터 줄이기
     num_val = int(loader.val_size * subset_ratio)
     val_dataset = val_dataset.shuffle(buffer_size=1000, seed=42)
-    small_val_dataset = val_dataset.take(num_val)
+    small_val_dataset = val_dataset.take(max(num_val,1))
 
     # 3. 모델 설정
     model = get_model(max_len=sequence_length, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES)
