@@ -17,6 +17,7 @@ LEARNING_RATE = 0.0001
 LEARNING_RATE_FOR_UMAP = 0.001
 BATCH_SIZE = 32
 BATCH_SIZE_FOR_UMAP = 1024
+WEIGHT_DECAY = 0.01
 EPOCHS = 300
 EPOCHS_FOR_UMAP = 100
 VALIDATION_SPLIT = 0.2
@@ -267,6 +268,7 @@ WANDB_UMAP_NAME = f"umap-{date_idx}"
 
 # ============== optuna 설정 ==============
 OPTUNA_TRIALS_PATH = "sqlite:////content/drive/MyDrive/optuna_trials.db" # 로컬 수정 필요
+SUBSET_RATIO = 0.05
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 try:
