@@ -14,24 +14,36 @@ from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, OUTPUT_DIM, N
 from load_data.create_dataset import TrainDataLoader
 from load_data.create_dataset import upload_file
 
-def train_model(data_path: str):
+def train_model(data_path: str,
+                learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
+                max_sequence_len: int=MAX_LEN
+                ):
+    print(" ============== 받은 하이퍼파라미터 ============== ")
+    print(f"    > learning_rate: {learning_rate}")
+    print(f"    > epochs: {epochs}")
+    print(f"    > batch_size: {batch_size}")
+    print(f"    > weight_decay: {weight_decay}")
+    print(f"    > max_sequence_len: {max_sequence_len}")
+
+
     wandb.init(
         project=WANDB_GM_PROJECT,
         name=WANDB_GM_NAME,
         config={
-            "learning_rate": LEARNING_RATE,
-            "epochs": EPOCHS,
-            "batch_size": BATCH_SIZE
+            "learning_rate": learning_rate,
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "max_sequence_len": max_sequence_len
         }
     )
     print("\nLoading training data...")
-    train_dataset, val_dataset, test_dataset = TrainDataLoader(data_path=data_path, is_training_transformer=True).create_transformer_dataset()
+    train_dataset, val_dataset, test_dataset = TrainDataLoader(data_path=data_path, is_training_transformer=True).create_transformer_dataset(batch_size=batch_size)
 
     # 1. 모델 생성
     print("\nCreating model...")
-    model = get_model(max_len=MAX_LEN, dropout_step=0, dim=OUTPUT_DIM, num_classes=NUM_CLASSES)
+    model = get_model(max_len=max_sequence_len, dropout_step=0, dim=OUTPUT_DIM, num_classes=NUM_CLASSES)
     model.compile(
-        optimizer=keras.optimizers.AdamW(learning_rate=LEARNING_RATE, weight_decay=WEIGHT_DECAY),
+        optimizer=keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay),
         loss=keras.losses.SparseCategoricalCrossentropy(),
         metrics=['accuracy']
     )
@@ -45,7 +57,7 @@ def train_model(data_path: str):
     history = model.fit(
         train_dataset,
         validation_data=val_dataset,
-        epochs=EPOCHS,
+        epochs=epochs,
         verbose=1,
         callbacks=[
             keras.callbacks.ModelCheckpoint(
@@ -82,7 +94,7 @@ def train_model(data_path: str):
     tflite_model = TFLiteModel(model)  # Pass single model, not list
 
     concrete_input_signature = tf.TensorSpec(
-        shape=[1, MAX_LEN, OUTPUT_DIM],  # (배치=1, 최대프레임=137, 채널=유맵차원)
+        shape=[1, max_sequence_len, OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
         dtype=tf.float32
     )
     concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
@@ -105,12 +117,48 @@ def train_model(data_path: str):
     # 5. 모델 평가
     eval_results = model.evaluate(test_dataset, return_dict=True)
     print("Model Test Results: ")
-    print(*(f"  > {k}: {v:.3f}", for k, v in eval_results.items()), sep='\n')
+    print(*(f"  > {k}: {v:.3f}" for k, v in eval_results.items()), sep='\n')
 
     wandb.log({f"test_{k}": v for k, v in eval_results.items()})
     wandb.finish()
 
     return history
+
+"""
+명령어 예시: python -m train.gloss_transformer_train --storage L --lr 0.4 --bs 64 --epochs 120 --wd 0.03 --msl 170
+"""
+def get_model_args():
+    import argparse
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--lr", "--learning_rate",
+        type=float,
+        default=LEARNING_RATE,
+    )
+    parser.add_argument(
+        "--bs", "--batch_size",
+        type=int,
+        default=BATCH_SIZE
+    )
+    parser.add_argument(
+        "-e", "--epochs",
+        type=int,
+        default=EPOCHS
+    )
+    parser.add_argument(
+        "--wd", "--weight_decay",
+        type=float,
+        default=WEIGHT_DECAY
+    )
+    parser.add_argument(
+        "--msl", "--max_sequence_len",
+        type=int,
+        default=MAX_LEN
+    )
+
+    args, _ = parser.parse_known_args()
+    return args
 
 if __name__ == "__main__":
     # 1. 사용 가능한 GPU 리스트 출력
@@ -123,6 +171,10 @@ if __name__ == "__main__":
         print(f"GPU 사용 중. 현재 사용 가능한 GPU 개수: {len(gpus)}")
         for i, gpu in enumerate(gpus):
             print(f" - GPU [{i}]: {gpu}")
+    # 2. 사용자 옵션 받기
+    args = get_model_args()
 
-    # Train model
-    history = train_model(data_path=LOAD_DATA) # parameter로 설정값 받도록 수정
+    # 3. 모델 학습
+    history = train_model(data_path=LOAD_DATA,
+                          # 사용자 옵션 사용
+                          learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl)
