@@ -23,6 +23,10 @@ class TrainDataLoader:
     def __init__(self, data_path, samples_per_class=1000, is_training_transformer=False):
         self.data_path = data_path
         self.batch_size = BATCH_SIZE
+        # 데이터셋 크기 저장
+        self.train_size = None
+        self.val_size = None
+        self.test_size = None
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
         self.is_gcs = data_path.startswith('gs://')
@@ -118,13 +122,13 @@ class TrainDataLoader:
         )
         full_dataset = full_dataset.shuffle(buffer_size=1024, seed=42, reshuffle_each_iteration=False) # 에폭마다 데이터 섞임 방지
         dataset_size = len(self.videos)
-        test_size = int(dataset_size*TEST_SPLIT)
-        val_size = int(dataset_size*(1-TEST_SPLIT)*VALIDATION_SPLIT) # 남은 데이터 1:1-VAL로 분리
-        train_size = dataset_size-test_size-val_size
+        self.test_size = int(dataset_size*TEST_SPLIT)
+        self.val_size = int(dataset_size*(1-TEST_SPLIT)*VALIDATION_SPLIT) # 남은 데이터 1:1-VAL로 분리
+        self.train_size = dataset_size-self.test_size-self.val_size
 
-        test_dataset = full_dataset.take(test_size)
-        val_dataset = full_dataset.skip(test_size).take(val_size)
-        train_dataset = full_dataset.skip(test_size+val_size)
+        test_dataset = full_dataset.take(self.test_size)
+        val_dataset = full_dataset.skip(self.test_size).take(self.val_size)
+        train_dataset = full_dataset.skip(self.test_size+self.val_size)
 
         target_batch_size = batch_size if batch_size is not None else self.batch_size
 
@@ -136,9 +140,9 @@ class TrainDataLoader:
         train_dataset = finalize(train_dataset) # OoM이 난다면 해당 설정을 제거해야 함.
 
         print(f"전체 데이터셋 크기: {dataset_size}")
-        print(f"훈련 데이터셋 크기 (예상): {train_size}")
-        print(f"검증 데이터셋 크기 (예상): {val_size}")
-        print(f"테스트 데이터셋 크기 (예상): {test_size}")
+        print(f"훈련 데이터셋 크기 (예상): {self.train_size}")
+        print(f"검증 데이터셋 크기 (예상): {self.val_size}")
+        print(f"테스트 데이터셋 크기 (예상): {self.test_size}")
         print("\nTrain Dataset Spec:\n", train_dataset)
         print("\nValidation Dataset Spec:\n", val_dataset)
         print("\nTest Dataset Spec:\n", test_dataset)
