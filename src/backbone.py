@@ -2,7 +2,7 @@
 import os
 os.environ["KERAS_BACKEND"] = "tensorflow"
 from .utils import Preprocess
-from .config import MAX_LEN, CHANNELS, PAD
+from .config import MAX_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
 import tensorflow as tf
 import keras
 import itertools
@@ -315,7 +315,7 @@ class TFLiteModel(tf.Module):
         outputs = self.islr_model(x)  # Call single model directly
         return {'outputs': outputs}
 
-def get_model(max_len=MAX_LEN, dropout_step=0, dim=98, num_classes=5):
+def get_model(max_len=MAX_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES):
     """
     Creates a model for sequence classification using a combination of convolutional layers and transformer blocks.
 
@@ -328,8 +328,8 @@ def get_model(max_len=MAX_LEN, dropout_step=0, dim=98, num_classes=5):
     Returns:
         A TensorFlow Keras Model object.
     """
-    inp = keras.Input(shape=(max_len, CHANNELS))
-    x = keras.layers.Masking(mask_value=PAD,input_shape=(max_len,CHANNELS))(inp) #we don't need masking layer with inference
+    inp = keras.Input(shape=(max_len, UMAP_OUTPUT_DIM)) # 기존 CHANNELS -> 유맵 차원 축소로 UMAP_OUTPUT_DIM
+    x = keras.layers.Masking(mask_value=PAD)(inp) #we don't need masking layer with inference
     #x = inp # 추론 시에는 해당 부분을 주석 처리 하고, 학습 시에는 326(윗) 라인을 주석 처리해야 합니다.
     ksize = 17
     

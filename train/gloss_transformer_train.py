@@ -10,7 +10,7 @@ keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 �
 # 커스텀
 from src.backbone import get_model, TFLiteModel
 from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, OUTPUT_DIM, NUM_CLASSES, \
-    WANDB_GM_PROJECT, WANDB_GM_NAME, LOCAL_PATHS, LOAD_GM, LOAD_DATA, WEIGHT_DECAY
+    WANDB_GM_PROJECT, WANDB_GM_NAME, LOCAL_PATHS, LOAD_GM, LOAD_DATA, WEIGHT_DECAY, UMAP_OUTPUT_DIM
 from load_data.create_dataset import TrainDataLoader
 from load_data.create_dataset import upload_file
 
@@ -93,7 +93,7 @@ def train_model(data_path: str,
     tflite_model = TFLiteModel(model)  # Pass single model, not list
 
     concrete_input_signature = tf.TensorSpec(
-        shape=[1, max_sequence_len, OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
+        shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
         dtype=tf.float32
     )
     concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)

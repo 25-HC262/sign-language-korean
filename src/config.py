@@ -6,7 +6,7 @@ import os
 # Model parameters
 THRESHOLD = 0.5
 SEQ_LEN = 60
-ROWS_PER_FRAME = 137
+ROWS_PER_FRAME = 137 # 제거 필요.
 MAX_LEN = 125
 CROP_LEN = MAX_LEN
 NUM_CLASSES = 5
@@ -22,7 +22,8 @@ EPOCHS = 300
 EPOCHS_FOR_UMAP = 100
 VALIDATION_SPLIT = 0.2
 TEST_SPLIT = 0.05
-OUTPUT_DIM = 32
+UMAP_OUTPUT_DIM = 32
+OUTPUT_DIM = 98
 
 # ============= POSE KEYPOINTS (0-24) =============
 # OpenPose BODY_25 model keypoints

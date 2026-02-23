@@ -9,7 +9,8 @@ from optuna.storages import RDBStorage
 
 from load_data.create_dataset import TrainDataLoader
 from src.backbone import get_model
-from src.config import OPTUNA_TRIALS_PATH, LOAD_DATA, EPOCHS, OUTPUT_DIM, NUM_CLASSES, SUBSET_RATIO, BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS
+from src.config import OPTUNA_TRIALS_PATH, LOAD_DATA, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
+    BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM
 
 
 def objective(trial):
@@ -33,12 +34,13 @@ def objective(trial):
     small_val_dataset = val_dataset.take(num_val)
 
     # 3. 모델 설정
-    model = get_model(max_len=sequence_length,dropout_step=0, dim=OUTPUT_DIM, num_classes=NUM_CLASSES)
+    model = get_model(max_len=sequence_length, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES)
     model.compile(
         optimizer = keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay),
         loss = keras.losses.SparseCategoricalCrossentropy(),
         metrics = ['accuracy']
     )
+    print("Model compile finished.")
 
     # 4. 모델 학습
     history = model.fit(

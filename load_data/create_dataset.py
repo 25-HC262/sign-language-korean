@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import boto3
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, \
-    BATCH_SIZE, OUTPUT_DIM, STORAGE_MODE, UMAP_LOAD_PATH, TEST_SPLIT
+    BATCH_SIZE, STORAGE_MODE, UMAP_LOAD_PATH, TEST_SPLIT, UMAP_OUTPUT_DIM
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
@@ -114,13 +114,13 @@ class TrainDataLoader:
                 if len(seq) > self.max_len:
                     seq = seq[:self.max_len]
                 else:
-                    padding = np.zeros((self.max_len - len(seq), OUTPUT_DIM))
+                    padding = np.zeros((self.max_len - len(seq), UMAP_OUTPUT_DIM))
                     seq = np.concatenate([seq, padding], axis=0)
                 yield seq.astype(np.float32), np.int32(video['class_label'])
         full_dataset = tf.data.Dataset.from_generator(
             _data_generator, # 함수 자체 전달
             output_signature=(
-                tf.TensorSpec(shape=(self.max_len, OUTPUT_DIM), dtype=tf.float32),
+                tf.TensorSpec(shape=(self.max_len, UMAP_OUTPUT_DIM), dtype=tf.float32),
                 tf.TensorSpec(shape=(), dtype=tf.int32)
             )
         )
