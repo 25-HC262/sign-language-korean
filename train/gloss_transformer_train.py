@@ -35,18 +35,18 @@ def train_model(data_path: str,
         job_type="train",
         config={
             # Training
-            "learning_rate": LEARNING_RATE,
-            "epochs": EPOCHS,
-            "batch_size": BATCH_SIZE,
+            "learning_rate": learning_rate,
+            "epochs": epochs,
+            "batch_size": batch_size,
             "validation_split": VALIDATION_SPLIT,
             "optimizer": "adam",
             # Model architecture
             "model_type": SELECTED_GM_TYPE,
-            "max_len": MAX_LEN,
+            "max_len": max_sequence_len,
             "input_channels": CHANNELS,
-            "conv_dim": OUTPUT_DIM,
+            "conv_dim": UMAP_OUTPUT_DIM,
             "kernel_size": 17,
-            "num_heads": 4,
+            "num_heads": 4, # TO-DO: backbone.py에서 실제로 가져오도록 수정
             "transformer_expand": 2,
             "conv_blocks_per_stage": 3,
             "transformer_stages": 2,
@@ -56,7 +56,7 @@ def train_model(data_path: str,
             "num_classes": NUM_CLASSES,
             # Data
             "num_nodes": NUM_NODES,
-            "output_dim": OUTPUT_DIM,
+            "output_dim": UMAP_OUTPUT_DIM,
             # Callbacks
             "early_stopping_patience": 10,
             "lr_reduce_patience": 5,
@@ -71,14 +71,12 @@ def train_model(data_path: str,
 
     # 1. 모델 생성
     print("\nCreating model...")
-    model = get_model(max_len=MAX_LEN, dropout_step=0, dim=OUTPUT_DIM, num_classes=NUM_CLASSES)
-
-    optimizer = keras.optimizers.Adam(learning_rate=LEARNING_RATE)
-
-    loss = keras.losses.SparseCategoricalCrossentropy()
-    metrics = ['accuracy']
-
-    model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
+    model = get_model(max_len=max_sequence_len, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES)
+    model.compile(
+        optimizer=keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay),
+        loss=keras.losses.SparseCategoricalCrossentropy(),
+        metrics=['accuracy']
+    )
     wandb.watch(model, log="all", log_freq=10)
 
     print(f"Model compiled successfully!")
