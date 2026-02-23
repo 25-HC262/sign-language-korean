@@ -10,7 +10,7 @@ keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 �
 # 커스텀
 from src.backbone import get_model, TFLiteModel
 from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, OUTPUT_DIM, NUM_CLASSES, \
-    WANDB_GM_PROJECT, WANDB_GM_NAME, L_CKPT, LOCAL_PATHS, LOAD_GM, LOAD_DATA, WEIGHT_DECAY
+    WANDB_GM_PROJECT, WANDB_GM_NAME, LOCAL_PATHS, LOAD_GM, LOAD_DATA, WEIGHT_DECAY
 from load_data.create_dataset import TrainDataLoader
 from load_data.create_dataset import upload_file
 
@@ -61,7 +61,7 @@ def train_model(data_path: str,
         verbose=1,
         callbacks=[
             keras.callbacks.ModelCheckpoint(
-                L_CKPT,
+                LOCAL_PATHS["gm_ckpt"],
                 monitor='val_loss',
                 save_best_only=True,
                 save_weights_only=False,

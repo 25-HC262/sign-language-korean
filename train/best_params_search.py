@@ -9,8 +9,8 @@ from optuna.storages import RDBStorage
 
 from load_data.create_dataset import TrainDataLoader
 from src.backbone import get_model
-from src.config import OPTUNA_TRIALS_PATH, LOAD_DATA, EPOCHS, OUTPUT_DIM, NUM_CLASSES, L_CKPT, \
-    SUBSET_RATIO, BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS
+from src.config import OPTUNA_TRIALS_PATH, LOAD_DATA, EPOCHS, OUTPUT_DIM, NUM_CLASSES, SUBSET_RATIO, BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS
+
 
 def objective(trial):
     # 1. 하이퍼파라미터 탐색 공간 정의
@@ -48,7 +48,7 @@ def objective(trial):
         verbose=1,
         callbacks=[
             keras.callbacks.ModelCheckpoint(
-                L_CKPT,
+                LOCAL_PATHS["gm_ckpt"],
                 monitor='val_loss',
                 save_best_only=True,
                 save_weights_only=False,
