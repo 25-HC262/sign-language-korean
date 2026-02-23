@@ -158,6 +158,7 @@ def get_model_args():
     )
 
     args, _ = parser.parse_known_args()
+    print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
     return args
 
 if __name__ == "__main__":
