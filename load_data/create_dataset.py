@@ -22,6 +22,7 @@ from google.cloud import storage
 class TrainDataLoader:
     def __init__(self, data_path, samples_per_class=1000, is_training_transformer=False):
         self.data_path = data_path
+        self.batch_size = BATCH_SIZE
         # s3 경로 확인
         self.is_s3 = data_path.startswith('s3://')
         self.is_gcs = data_path.startswith('gs://')
@@ -96,7 +97,7 @@ class TrainDataLoader:
         print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
         return train_dataset, validation_dataset
 
-    def create_transformer_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
+    def create_transformer_dataset(self, batch_size=None) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
         # self.videos 구성
         self._get_all_filepaths()
         def _data_generator():
@@ -125,13 +126,18 @@ class TrainDataLoader:
         val_dataset = full_dataset.skip(test_size).take(val_size)
         train_dataset = full_dataset.skip(test_size+val_size)
 
-        test_dataset = test_dataset.cache().batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE) # cache 설정으로 메모리에 올려 속도 극대화
-        val_dataset = val_dataset.cache().batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
-        train_dataset = train_dataset.cache().batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE) # OoM이 난다면 해당 설정을 제거해야 함.
+        target_batch_size = batch_size if batch_size is not None else self.batch_size
+
+        def finalize(ds: tf.data.Dataset):
+            return ds.cache().batch(target_batch_size).prefetch(tf.data.AUTOTUNE)
+
+        test_dataset = finalize(test_dataset) # cache 설정으로 메모리에 올려 속도 극대화
+        val_dataset = finalize(val_dataset)
+        train_dataset = finalize(train_dataset) # OoM이 난다면 해당 설정을 제거해야 함.
 
         print(f"전체 데이터셋 크기: {dataset_size}")
         print(f"훈련 데이터셋 크기 (예상): {train_size}")
-        print(f"검증 데이터셋 크기 (예상): {test_size}")
+        print(f"검증 데이터셋 크기 (예상): {val_size}")
         print(f"테스트 데이터셋 크기 (예상): {test_size}")
         print("\nTrain Dataset Spec:\n", train_dataset)
         print("\nValidation Dataset Spec:\n", val_dataset)
