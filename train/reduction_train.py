@@ -16,7 +16,8 @@ from wandb.integration.keras import WandbMetricsLogger
 import wandb
 from load_data.create_dataset import TrainDataLoader, upload_file
 from src.config import NUM_NODES, EPOCHS_FOR_UMAP, \
-    OUTPUT_DIM, LEARNING_RATE_FOR_UMAP, BATCH_SIZE_FOR_UMAP, WANDB_UMAP_NAME, WANDB_UMAP_PROJECT, \
+    OUTPUT_DIM, LEARNING_RATE_FOR_UMAP, BATCH_SIZE_FOR_UMAP, \
+    WANDB_UMAP_NAME, WANDB_UMAP_PROJECT, WANDB_UMAP_GROUP, WANDB_UMAP_TAGS, \
     LOAD_UMAP, L_UMAP, LOAD_DATA
 
 
@@ -103,10 +104,33 @@ class DataDimensionReducer:
         wandb.init(
             project=WANDB_UMAP_PROJECT,
             name=WANDB_UMAP_NAME,
+            group=WANDB_UMAP_GROUP,
+            tags=WANDB_UMAP_TAGS,
+            job_type="umap-train",
             config={
+                # Training
                 "learning_rate": learning_rate,
                 "epochs": epochs,
-                "batch_size": batch_size # 변수화 하는 게 좋을 듯
+                "batch_size": batch_size,
+                # UMAP Architecture
+                "input_dim": NUM_NODES * 2,
+                "output_dim": output_dim,
+                "encoder_hidden_units": 128,
+                "decoder_hidden_units": 128,
+                "dropout_rate": 0.2,
+                "l2_reg": 0.001,
+                # UMAP-specific
+                "parametric_reconstruction": True,
+                "reconstruction_loss_fn": "MSE",
+                "autoencoder_loss": True,
+                # Data
+                "num_nodes": NUM_NODES,
+                "samples_per_class": samples_per_class,
+                # Callbacks
+                "early_stopping_patience": 15,
+                "lr_reduce_patience": 5,
+                "lr_reduce_factor": 0.5,
+                "min_lr": 1e-7,
             }
         )
 
@@ -150,6 +174,7 @@ class DataDimensionReducer:
         )
         epochs //= 10    # 모델은 총 에폭수 = n_training_epochs*loss_report_frequency(10) 로 계산하므로
         self.embedder.n_training_epochs = epochs
+        wandb.watch(self.encoder, log="all", log_freq=10)
 
     def train_reducer(self):
         print("Converting tensorflow dataset to numpy array for UMAP fitting...")
@@ -157,6 +182,15 @@ class DataDimensionReducer:
         print("Saving embedder model...")
         Path(self.save_path).mkdir(parents=True, exist_ok=True)
         self.embedder.save(self.save_path)
+
+        artifact = wandb.Artifact(
+            name="umap-encoder",
+            type="model",
+            description="Trained ParametricUMAP encoder",
+            metadata=dict(wandb.config),
+        )
+        artifact.add_dir(self.save_path)
+        wandb.log_artifact(artifact)
 
         # 임베딩 결과 확인
         print("Transforming data for visualization...")
