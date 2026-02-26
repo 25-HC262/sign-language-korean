@@ -28,5 +28,5 @@ pip install -r requirements-linux.txt
 
 ## 학습 진행
 ```
-python3 -m train.gloss_transformer_train
+python -m train.gloss_transformer_train —-storage G —-lr 0.0001178136471332758 —-bs 32 —-epochs 158 —-wd 0.23042807878441396 -—msl 281
 ```
