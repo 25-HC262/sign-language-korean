@@ -241,7 +241,7 @@ date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 base_map = {
     "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints"),
     "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints"),
-    "L": ("data/openpose_keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints")
+    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints")
 }
 # 새로운 모델 저장
 names = {
