@@ -166,7 +166,14 @@ class TrainDataLoader:
                         direction_dir = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
                         person_paths = self._list_s3_subdirs(direction_dir)
                     elif self.is_gcs:
-                        direction_dir = os.path.join(self.gcs_prefix, folder_name, f"{folder_name}_{direction}/")
+                        # 1. 중복 때문에 중간 경로 생성 (예: .../NIA_SL_SEN0019/NIA_SL_SEN0019_D/)
+                        sub_dir_name = f"{folder_name}_{direction}"
+                        direction_dir = os.path.join(self.gcs_prefix, folder_name, sub_dir_name)
+
+                        # 2. GCS에서는 경로 끝에 /가 있어야 '디렉토리'로 인식하는 경우가 많으므로 안전하게 추가
+                        if not direction_dir.endswith('/'):
+                            direction_dir += '/'
+
                         person_paths = self._list_gcs_subdirs(direction_dir)
                     else:
                         direction_dir = os.path.join(self.data_path, folder_name, f"{folder_name}_{direction}")
