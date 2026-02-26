@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import boto3
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, \
-    BATCH_SIZE, STORAGE_MODE, UMAP_LOAD_PATH, TEST_SPLIT, UMAP_OUTPUT_DIM
+    BATCH_SIZE, UMAP_LOAD_PATH, TEST_SPLIT, UMAP_OUTPUT_DIM, UPLOAD_MODE
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
@@ -371,11 +371,11 @@ class TrainDataLoader:
 
 # --- 업로드 인터페이스 함수 ---
 def upload_file(local_root_path: str, upload_path: str, file_name: str = None):
-    if STORAGE_MODE == 'S':
+    if UPLOAD_MODE == 'S':
         upload_file_to_s3(local_root_path=local_root_path, s3_path=upload_path, file_name=file_name)
-    elif STORAGE_MODE == 'G':
+    elif UPLOAD_MODE == 'G':
         upload_file_to_gcs(local_root_path=local_root_path, gcs_path=upload_path, file_name=file_name)
-    # STORAGE_MODE == 'L'인 경우 아무것도 하지 않음.
+    # UPLOAD_MODE == 'L'인 경우 아무것도 하지 않음.
 
 #  --- S3 upload method ---
 def upload_file_to_s3(local_root_path: str, s3_path: str, file_name: str = None):

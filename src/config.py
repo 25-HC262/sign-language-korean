@@ -172,9 +172,11 @@ CHANNELS = DIM * NUM_NODES  # x, y for each point
 # 전역 패스(Path) 변수 설정
 # ==========================================
 """
-1. 저장소 선택
-    -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
-    명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
+1. 다운로드/업로드 저장소 선택
+    - 다운로드: -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
+        명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
+    - 업로드: -u 혹은 --upload 뒤에 L,S,G 중 하나를 받도록 설정
+        명령어 예시: `python -m model.gloss_transformer -u G` 혹은 `-upload G`
 2. umap 모델 선택
     -u 혹은 --umap 뒤에 모델명
     명령어 예시: `python -m model.gloss_transformer -u "umap.keras"` 혹은 `--umap "umap.keras"`
@@ -195,6 +197,13 @@ def get_config_args():
         default="L",
         help="Storage type: L(Local), S(S3), G(GCS)"
     )
+
+    # 업로드 선택 옵션 - args.upload에 저장
+    parser.add_argument(
+        "-u", "--upload",
+        choices=["L", "S", "G"],
+        default="L",
+        help="Storage type: L(Local), S(S3), G(GCS)"    )
 
     # umap 모델 선택 옵션 - args.umap에 저장
     parser.add_argument(
@@ -219,6 +228,7 @@ def get_config_args():
 
 args = get_config_args()
 STORAGE_MODE = args.storage
+UPLOAD_MODE = args.upload
 SELECTED_GM_TYPE = args.gmt
 
 # 경로 안정화
@@ -251,8 +261,8 @@ for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS]:
     os.makedirs(path, exist_ok=True)
 print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 
-# LOAD_BASE: 사용자 선택 모드(STORAGE_MODE)에서 가져옴
-LOAD_DATA, LOAD_UMAP, LOAD_GM, _ = base_map.get(STORAGE_MODE, base_map["L"])
+# LOAD_BASE: 사용자 선택 모드(UPLOAD_MODE)에서 가져옴
+LOAD_DATA, LOAD_UMAP, LOAD_GM, _ = base_map.get(UPLOAD_MODE, base_map["L"])
 
 # 최종 경로
 UMAP_LOAD_PATH = f'{LOAD_UMAP}/{args.umap}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
