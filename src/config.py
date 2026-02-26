@@ -250,6 +250,7 @@ names = {
 }
 files = {
     "gm_keras": f"{names['gm']}.keras", # .h5보다 .keras가 권장되므로 .keras로 통일할 것.
+    "optuna_gm_keras": f"optuna-{names['gm']}.keras",
     "gm_tflite": f"{names['gm']}.tflite",
     "umap_keras": f"{names['umap']}.keras"
 }
@@ -271,6 +272,7 @@ GM_LOAD_PATH = f'{LOAD_GM}/{args.gm}'       # 프로젝트에 사용되는 최�
 # 저장 경로
 LOCAL_PATHS = {
     "gm_ckpt": f"{L_CKPT}/{files['gm_keras']}",
+    "optuna_gm_ckpt": f"{L_CKPT}/{files['optuna_gm_keras']}",
     "gm_final": f"{L_GM}/{files['gm_keras']}",
     "gm_tflite": f"{L_GM}/{files['gm_tflite']}",
     "umap_ckpt": f"{L_UMAP}/{files['umap_keras']}",

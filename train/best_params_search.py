@@ -58,7 +58,7 @@ def objective(trial):
         verbose=1,
         callbacks=[
             keras.callbacks.ModelCheckpoint(
-                LOCAL_PATHS["gm_ckpt"],
+                LOCAL_PATHS["optuna_gm_ckpt"],
                 monitor='val_loss',
                 save_best_only=True,
                 save_weights_only=False,
