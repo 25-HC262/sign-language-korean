@@ -221,6 +221,10 @@ args = get_config_args()
 STORAGE_MODE = args.storage
 SELECTED_GM_TYPE = args.gmt
 
+# 경로 안정화
+CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(CONFIG_DIR, ".."))
+
 date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 
 """TO-DO: 기본 버킷명으로 통일"""
@@ -241,10 +245,11 @@ files = {
 }
 
 # 로컬 베이스는 항상 필요
-L_DATA, L_UMAP, L_GM, L_CKPT = base_map['L']
-os.makedirs(L_CKPT, exist_ok=True)
-os.makedirs(L_GM, exist_ok=True)
-os.makedirs(L_UMAP, exist_ok=True)
+L_DATA, L_UMAP, L_GM, L_CKPT = (os.path.join(PROJECT_ROOT, L_PATH) for L_PATH in base_map['L'])
+L_TOOLS = os.path.join(PROJECT_ROOT, "tools")
+for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS]:
+    os.makedirs(path, exist_ok=True)
+print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 
 # LOAD_BASE: 사용자 선택 모드(STORAGE_MODE)에서 가져옴
 LOAD_DATA, LOAD_UMAP, LOAD_GM, _ = base_map.get(STORAGE_MODE, base_map["L"])
