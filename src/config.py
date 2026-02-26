@@ -178,8 +178,8 @@ CHANNELS = DIM * NUM_NODES  # x, y for each point
     - 업로드: -u 혹은 --upload 뒤에 L,S,G 중 하나를 받도록 설정
         명령어 예시: `python -m model.gloss_transformer -u G` 혹은 `-upload G`
 2. umap 모델 선택
-    -u 혹은 --umap 뒤에 모델명
-    명령어 예시: `python -m model.gloss_transformer -u "umap.keras"` 혹은 `--umap "umap.keras"`
+    --umap 뒤에 모델명
+    명령어 예시: `python -m model.gloss_transformer --umap "umap.keras"`
 3. gloss 모델 선택
     -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
     명령어 예시: `python -m model.gloss_transformer -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
@@ -207,7 +207,7 @@ def get_config_args():
 
     # umap 모델 선택 옵션 - args.umap에 저장
     parser.add_argument(
-        "-u", "--umap",
+        "--umap",
         default="encoder.keras"
     )
     # gloss 모델 선택 옵션 - args.gm에 저장
