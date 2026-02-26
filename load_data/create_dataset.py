@@ -166,7 +166,7 @@ class TrainDataLoader:
                         direction_dir = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
                         person_paths = self._list_s3_subdirs(direction_dir)
                     elif self.is_gcs:
-                        direction_dir = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
+                        direction_dir = os.path.join(self.gcs_prefix, folder_name, f"{folder_name}_{direction}/")
                         person_paths = self._list_gcs_subdirs(direction_dir)
                     else:
                         direction_dir = os.path.join(self.data_path, folder_name, f"{folder_name}_{direction}")

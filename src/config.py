@@ -225,7 +225,7 @@ date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 
 """TO-DO: 기본 버킷명으로 통일"""
 base_map = {
-    "G": ("gs://openpose-keypoints", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints"),
+    "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints"),
     "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints"),
     "L": ("data/openpose_keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints")
 }
