@@ -1,12 +1,15 @@
 import glob
 import os
 import random
+from enum import StrEnum, Enum
+from typing import Union, Type
 from urllib.parse import urlparse
 
 import boto3
 
-from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN, \
-    BATCH_SIZE, UMAP_LOAD_PATH, TEST_SPLIT, UMAP_OUTPUT_DIM, UPLOAD_MODE
+from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
+    BATCH_SIZE, UMAP_LOAD_PATH, TEST_SPLIT, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
+    L_PREPROCESSED_DATA, MAX_LEN, L_DATA
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
@@ -19,8 +22,98 @@ from pathlib import Path
 import json
 from google.cloud import storage
 
+class DataType(StrEnum):
+    GLOSS = "gloss"
+    SENTENCE = "sentence"
+
+class DataDim(StrEnum):
+    _2D = "2d"
+    _3D = "3d"
+
+class DataSetter:
+    def __init__(self, umap_path: str=UMAP_LOAD_PATH, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
+                 data_type: DataType=DataType.GLOSS, data_dim: DataDim=DataDim._2D,
+                 max_seq_len: int=MAX_LEN,
+                 batch_size: int=BATCH_SIZE):
+        """
+        :param umap_path: Umap Version. 사용자 옵션`--umap`에서 입력한 Umap 차원축소기 파일명에 따라 경로가 자동 주입됨.
+        :param data_type:
+        :param data_dim:
+        """
+        # 입력이 문자열이면 Enum으로 변환, 아니면 그대로 유지
+        def to_enum(enum_class: Type[Enum], value: Union[str, Enum]) -> Enum:
+            if isinstance(value, str):
+                try:
+                    return enum_class(value.lower()) # enum_class.value 리턴
+                except ValueError:
+                    print(f"[!] Warning: {value}는 {enum_class.__name__}에 없습니다.")
+                    return list(enum_class)[0] # 첫번째 항목을 기본값으로 사용
+            return value
+
+        # x: (original_len, dim) -> (target_len, dim)
+        def truncate_sequence():
+            def _truncate(x,y):
+                # x shape: (original_max_len, UMAP_OUTPUT_DIM)
+                return x[:self.max_seq_len, :],y
+            return _truncate
+
+        def load_and_prep(path: Path) -> tf.data.Dataset:
+            ds = tf.data.Dataset.load(str(path))
+            # 1. 시퀀스 자르기 (길이가 다를 경우만 실행)
+            if self.max_seq_len < MAX_LEN:
+                return ds.map(truncate_sequence(), num_parallel_calls=tf.data.AUTOTUNE) \
+                    .batch(batch_size) \
+                    .prefetch(tf.data.AUTOTUNE)
+            # 2. 공통 처리: 배치 및 프리페치
+            return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+        data_type = to_enum(DataType, data_type)
+        data_dim = to_enum(DataDim, data_dim)
+        self.max_seq_len = max_seq_len
+
+        # 경로 설정
+        umap_use = Path(umap_path).stem if umap_path else "none" # None 설정이 default가 되도록 바꿀 것. & TO-DO. umap 선택 가능하도록
+        self.data_dir = f"uu={umap_use}-nc={NUM_CLASSES}-dt={data_type}-dd={data_dim}"
+        self.dir_path = Path(L_PREPROCESSED_DATA) / self.data_dir
+
+        print(f"[*] 초기화 완료: {data_type.name} / {data_dim.name}") # TO-DO: dim에 맞게 create_dataset에서 가져오도록.
+
+        train_path = self.dir_path / "train_ds"
+        val_path = self.dir_path / "val_ds"
+        test_path = self.dir_path / "test_ds"
+
+        if train_path.exists() and train_path.is_dir():
+            print(f"[*] 기존 데이터셋을 {self.data_dir}에서 로드 중;")
+            train_ds = load_and_prep(train_path)
+            val_ds = load_and_prep(val_path)
+            test_ds = load_and_prep(test_path)
+        else:
+            print("[!] 저장된 데이터셋이 없습니다. 새로 생성을 시작합니다.")
+            os.makedirs(self.dir_path) # 없으면 기존 데이터 가져오도록 - 에러 발생
+            # [생성] 원본 MAX_LEN과 지정된 batch_size로 생성됨
+            train_ds, val_ds, test_ds = TrainDataLoader(
+                data_path=L_DATA, max_len=MAX_LEN, is_training_transformer=True
+            ).create_transformer_dataset(batch_size=batch_size)
+            # [저장] unbatch 상태로 저장하여 범용성 확보
+            train_ds.unbatch().save(train_path); val_ds.unbatch().save(val_path); test_ds.unbatch().save(test_path)
+
+            # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
+            if self.max_seq_len < MAX_LEN:
+                def prep_new_ds(ds):
+                    return ds.unbatch().map(truncate_sequence(), num_parallel_calls=tf.data.AUTOTUNE) \
+                        .batch(batch_size).prefetch(tf.data.AUTOTUNE)
+                train_ds = prep_new_ds(train_ds)
+                val_ds = prep_new_ds(val_ds)
+                test_ds = prep_new_ds(test_ds)
+
+        self.final_datasets = (train_ds, val_ds, test_ds)
+
+    def get_datasets(self) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
+        return self.final_datasets
+
+
 class TrainDataLoader:
-    def __init__(self, data_path, max_len=MAX_LEN, samples_per_class=1000, is_training_transformer=False):
+    def __init__(self, data_path, max_len=CROP_LEN, samples_per_class=1000, is_training_transformer=False):
         self.data_path = data_path
         self.batch_size = BATCH_SIZE
         self.max_len = max_len
