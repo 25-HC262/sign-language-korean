@@ -8,7 +8,7 @@ THRESHOLD = 0.5
 SEQ_LEN = 60
 ROWS_PER_FRAME = 137 # 제거 필요.
 CROP_LEN = 125
-MAX_LEN = CROP_LEN # 최대 프레임 길이 (매번 계산할 수 없으므로 수동 계산)
+MAX_LEN = 340 # CROP_LEN # 최대 프레임 길이 (매번 계산할 수 없으므로 수동 계산)
 NUM_CLASSES = 5
 PAD = 0. #-100.
 

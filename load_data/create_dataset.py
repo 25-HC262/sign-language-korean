@@ -1,7 +1,7 @@
 import glob
 import os
 import random
-from enum import StrEnum, Enum
+from enum import Enum
 from typing import Union, Type
 from urllib.parse import urlparse
 
@@ -22,11 +22,11 @@ from pathlib import Path
 import json
 from google.cloud import storage
 
-class DataType(StrEnum):
+class DataType(Enum):
     GLOSS = "gloss"
     SENTENCE = "sentence"
 
-class DataDim(StrEnum):
+class DataDim(Enum):
     _2D = "2d"
     _3D = "3d"
 
@@ -73,7 +73,7 @@ class DataSetter:
 
         # 경로 설정
         umap_use = Path(umap_path).stem if umap_path else "none" # None 설정이 default가 되도록 바꿀 것. & TO-DO. umap 선택 가능하도록
-        self.data_dir = f"uu={umap_use}-nc={NUM_CLASSES}-dt={data_type}-dd={data_dim}"
+        self.data_dir = f"uu={umap_use}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}"
         self.dir_path = Path(L_PREPROCESSED_DATA) / self.data_dir
 
         print(f"[*] 초기화 완료: {data_type.name} / {data_dim.name}") # TO-DO: dim에 맞게 create_dataset에서 가져오도록.
@@ -82,7 +82,7 @@ class DataSetter:
         val_path = self.dir_path / "val_ds"
         test_path = self.dir_path / "test_ds"
 
-        if train_path.exists() and train_path.is_dir():
+        if train_path.exists() and (train_path / "dataset_spec.pb").exists():
             print(f"[*] 기존 데이터셋을 {self.data_dir}에서 로드 중;")
             train_ds = load_and_prep(train_path)
             val_ds = load_and_prep(val_path)
@@ -95,7 +95,7 @@ class DataSetter:
                 data_path=L_DATA, max_len=MAX_LEN, is_training_transformer=True
             ).create_transformer_dataset(batch_size=batch_size)
             # [저장] unbatch 상태로 저장하여 범용성 확보
-            train_ds.unbatch().save(train_path); val_ds.unbatch().save(val_path); test_ds.unbatch().save(test_path)
+            train_ds.unbatch().save(str(train_path)); val_ds.unbatch().save(str(val_path)); test_ds.unbatch().save(str(test_path))
 
             # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
             if self.max_seq_len < MAX_LEN:
