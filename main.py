@@ -14,7 +14,7 @@ from load_data.create_dataset import mediapipe_to_openpose_keypoints, \
     main_preprocess_sequence
 from src.backbone import CausalDWConv1D, ECA, LateDropout, \
     MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, MAX_LEN
+from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN
 
 # 수어 레이블 정의
 LABEL_MAP = KSL_SENTENCES

@@ -1,4 +1,3 @@
-import evaluate
 import keras
 import keras.optimizers
 
@@ -6,11 +5,20 @@ keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 �
 import optuna
 import tensorflow as tf
 from optuna.storages import RDBStorage
+import matplotlib
+import matplotlib.pyplot as plt
+from optuna.visualization.matplotlib import (
+    plot_optimization_history,
+    plot_intermediate_values,
+    plot_param_importances
+)
+matplotlib.use('Agg') # GUI 없이 파일 저장만 가능하게 하는 백엔드
 
 from load_data.create_dataset import TrainDataLoader
 from src.backbone import get_model
 from src.config import OPTUNA_TRIALS_PATH, LOAD_DATA, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
-    BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM
+    BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM, \
+    L_TOOLS
 
 
 def objective(trial):
@@ -50,7 +58,7 @@ def objective(trial):
         verbose=1,
         callbacks=[
             keras.callbacks.ModelCheckpoint(
-                LOCAL_PATHS["gm_ckpt"],
+                LOCAL_PATHS["optuna_gm_ckpt"],
                 monitor='val_loss',
                 save_best_only=True,
                 save_weights_only=False,
@@ -126,7 +134,7 @@ if __name__=="__main__":
     subset_ratio = args.sr
     n_trials = args.nt
 
-    # optuna 세팅
+    # 2. optuna 세팅
     storage = RDBStorage(url=OPTUNA_TRIALS_PATH)
     study = optuna.create_study(
         study_name=study_name,
@@ -135,7 +143,7 @@ if __name__=="__main__":
         load_if_exists=True
     )
 
-    # 데이터 로드
+    # 3. 데이터 로드
     loader = TrainDataLoader(data_path=LOAD_DATA, is_training_transformer=True)
 
     print(f" ============== parameter trials {n_trials}번 시도 시작! ============== ")
@@ -144,8 +152,42 @@ if __name__=="__main__":
     print(f"Best value: {study.best_value}")
     print(f"Best params: {study.best_params}")
 
-    # 최적 파라미터 추출
+    # 4. 최적 파라미터 추출
     import json, datetime
     date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
     with open(BEST_PARAMS_PATH, "w") as f:
         json.dump(study.best_params, f)
+
+    plt.style.use('ggplot')
+
+    # 5. 분석 결과 도출
+    # 5-1. 맵 설정 (함수 객체 자체를 저장하여 루프에서 실행)
+    # (함수, 제목, 저장파일명)
+    opt_map = {
+        'H': (plot_optimization_history, "Optimization History", "optimization_history.png"),
+        'I': (plot_intermediate_values, "Intermediate Values", "intermediate_values.png"),
+        'P': (plot_param_importances, "Hyperparameter Importances", "param_importances.png")
+    }
+    for key in ['H', 'I', 'P']:
+        plot_func, name, filename = opt_map.get(key, opt_map['H'])
+    try:
+        import os
+        print(f"Drawing {name}...")
+
+        # 5-2. 함수 실행
+        ax = plot_func(study)
+
+        plt.title(name, fontsize=14)
+        plt.tight_layout()
+
+        # 5-3. 경로 결합 및 저장
+        save_path = os.path.join(L_TOOLS, filename)
+        plt.savefig(save_path, dpi=300)
+
+        print(f"    > {name} 저장 완료: {save_path}")
+        plt.show()
+
+    except Exception as e:
+        print(f"    > {name} 플롯 생성 실패: {e}")
+
+    print("\n그래프 저장 완료!")

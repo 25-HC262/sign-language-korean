@@ -7,8 +7,8 @@ import os
 THRESHOLD = 0.5
 SEQ_LEN = 60
 ROWS_PER_FRAME = 137 # 제거 필요.
-MAX_LEN = 125
-CROP_LEN = MAX_LEN
+CROP_LEN = 125
+MAX_LEN = 340 # CROP_LEN # 최대 프레임 길이 (매번 계산할 수 없으므로 수동 계산)
 NUM_CLASSES = 5
 PAD = 0. #-100.
 
@@ -172,12 +172,14 @@ CHANNELS = DIM * NUM_NODES  # x, y for each point
 # 전역 패스(Path) 변수 설정
 # ==========================================
 """
-1. 저장소 선택
-    -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
-    명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
+1. 다운로드/업로드 저장소 선택
+    - 다운로드: -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
+        명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
+    - 업로드: -u 혹은 --upload 뒤에 L,S,G 중 하나를 받도록 설정
+        명령어 예시: `python -m model.gloss_transformer -u G` 혹은 `-upload G`
 2. umap 모델 선택
-    -u 혹은 --umap 뒤에 모델명
-    명령어 예시: `python -m model.gloss_transformer -u "umap.keras"` 혹은 `--umap "umap.keras"`
+    --umap 뒤에 모델명
+    명령어 예시: `python -m model.gloss_transformer --umap "umap.keras"`
 3. gloss 모델 선택
     -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
     명령어 예시: `python -m model.gloss_transformer -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
@@ -196,9 +198,16 @@ def get_config_args():
         help="Storage type: L(Local), S(S3), G(GCS)"
     )
 
+    # 업로드 선택 옵션 - args.upload에 저장
+    parser.add_argument(
+        "-u", "--upload",
+        choices=["L", "S", "G"],
+        default="L",
+        help="Storage type: L(Local), S(S3), G(GCS)"    )
+
     # umap 모델 선택 옵션 - args.umap에 저장
     parser.add_argument(
-        "-u", "--umap",
+        "--umap",
         default="encoder.keras"
     )
     # gloss 모델 선택 옵션 - args.gm에 저장
@@ -219,6 +228,7 @@ def get_config_args():
 
 args = get_config_args()
 STORAGE_MODE = args.storage
+UPLOAD_MODE = args.upload
 SELECTED_GM_TYPE = args.gmt
 
 # 경로 안정화
@@ -231,7 +241,7 @@ date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 base_map = {
     "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints"),
     "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints"),
-    "L": ("data/openpose_keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints")
+    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints")
 }
 # 새로운 모델 저장
 names = {
@@ -240,6 +250,7 @@ names = {
 }
 files = {
     "gm_keras": f"{names['gm']}.keras", # .h5보다 .keras가 권장되므로 .keras로 통일할 것.
+    "optuna_gm_keras": f"optuna-{names['gm']}.keras",
     "gm_tflite": f"{names['gm']}.tflite",
     "umap_keras": f"{names['umap']}.keras"
 }
@@ -249,10 +260,11 @@ L_DATA, L_UMAP, L_GM, L_CKPT = (os.path.join(PROJECT_ROOT, L_PATH) for L_PATH in
 L_TOOLS = os.path.join(PROJECT_ROOT, "tools")
 for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS]:
     os.makedirs(path, exist_ok=True)
+L_PREPROCESSED_DATA = os.path.join(PROJECT_ROOT, "data/processed")
 print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 
-# LOAD_BASE: 사용자 선택 모드(STORAGE_MODE)에서 가져옴
-LOAD_DATA, LOAD_UMAP, LOAD_GM, _ = base_map.get(STORAGE_MODE, base_map["L"])
+# LOAD_BASE: 사용자 선택 모드(UPLOAD_MODE)에서 가져옴
+LOAD_DATA, LOAD_UMAP, LOAD_GM, _ = base_map.get(UPLOAD_MODE, base_map["L"])
 
 # 최종 경로
 UMAP_LOAD_PATH = f'{LOAD_UMAP}/{args.umap}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
@@ -261,6 +273,7 @@ GM_LOAD_PATH = f'{LOAD_GM}/{args.gm}'       # 프로젝트에 사용되는 최�
 # 저장 경로
 LOCAL_PATHS = {
     "gm_ckpt": f"{L_CKPT}/{files['gm_keras']}",
+    "optuna_gm_ckpt": f"{L_CKPT}/{files['optuna_gm_keras']}",
     "gm_final": f"{L_GM}/{files['gm_keras']}",
     "gm_tflite": f"{L_GM}/{files['gm_tflite']}",
     "umap_ckpt": f"{L_UMAP}/{files['umap_keras']}",
@@ -298,4 +311,4 @@ if __name__ == "__main__":
     print(f"Number of selected keypoints: {NUM_NODES}")
     print(f"Feature dimension: {CHANNELS}")
     print(f"Number of classes: {len(KSL_SENTENCES)}")
-    print(f"Expected model input shape: ({MAX_LEN}, {CHANNELS})")
+    print(f"Expected model input shape: ({CROP_LEN}, {CHANNELS})")
