@@ -9,7 +9,7 @@ keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 �
 
 # 커스텀
 from src.backbone import get_model, TFLiteModel
-from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
+from src.config import MAX_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     NUM_NODES, CHANNELS, VALIDATION_SPLIT, STORAGE_MODE, SELECTED_GM_TYPE, \
     WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, WANDB_GM_TAGS, \
     LOCAL_PATHS, LOAD_GM, LOAD_DATA, UMAP_OUTPUT_DIM, WEIGHT_DECAY
@@ -18,7 +18,7 @@ from load_data.create_dataset import upload_file
 
 def train_model(data_path: str,
                 learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
-                max_sequence_len: int=CROP_LEN
+                max_sequence_len: int=MAX_LEN
                 ):
     # print(" ============== 받은 하이퍼파라미터 ============== ")
     # print(f"    > learning_rate: {learning_rate}")
@@ -201,7 +201,7 @@ def get_model_args():
     parser.add_argument(
         "--msl", "--max_sequence_len",
         type=int,
-        default=CROP_LEN
+        default=MAX_LEN
     )
 
     args, _ = parser.parse_known_args()
