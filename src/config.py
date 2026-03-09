@@ -7,8 +7,8 @@ import os
 THRESHOLD = 0.5
 SEQ_LEN = 60
 ROWS_PER_FRAME = 137 # 제거 필요.
-CROP_LEN = 125
-MAX_LEN = 340 # CROP_LEN # 최대 프레임 길이 (매번 계산할 수 없으므로 수동 계산)
+MAX_LEN = 125
+CROP_LEN = MAX_LEN
 NUM_CLASSES = 5
 PAD = 0. #-100.
 
@@ -260,7 +260,6 @@ L_DATA, L_UMAP, L_GM, L_CKPT = (os.path.join(PROJECT_ROOT, L_PATH) for L_PATH in
 L_TOOLS = os.path.join(PROJECT_ROOT, "tools")
 for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS]:
     os.makedirs(path, exist_ok=True)
-L_PREPROCESSED_DATA = os.path.join(PROJECT_ROOT, "data/processed")
 print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 
 # LOAD_BASE: 사용자 선택 모드(UPLOAD_MODE)에서 가져옴
@@ -311,4 +310,4 @@ if __name__ == "__main__":
     print(f"Number of selected keypoints: {NUM_NODES}")
     print(f"Feature dimension: {CHANNELS}")
     print(f"Number of classes: {len(KSL_SENTENCES)}")
-    print(f"Expected model input shape: ({CROP_LEN}, {CHANNELS})")
+    print(f"Expected model input shape: ({MAX_LEN}, {CHANNELS})")

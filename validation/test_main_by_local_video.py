@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 from load_data.create_dataset import mediapipe_to_openpose_keypoints  # 포맷
 # Import custom modules
 from src.backbone import CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
-from src.config import SEQ_LEN, CROP_LEN, POINT_LANDMARKS, KSL_SENTENCES
+from src.config import SEQ_LEN, MAX_LEN, POINT_LANDMARKS, KSL_SENTENCES
 
 # MediaPipe setup
 mp_holistic = mp.solutions.holistic
@@ -151,10 +151,10 @@ def preprocess_sequence(sequence):
     sequence = np.array(sequence)
     
     # Pad or truncate to MAX_LEN
-    if len(sequence) > CROP_LEN:
-        sequence = sequence[:CROP_LEN]
+    if len(sequence) > MAX_LEN:
+        sequence = sequence[:MAX_LEN]
     else:
-        pad_length = CROP_LEN - len(sequence)
+        pad_length = MAX_LEN - len(sequence)
         padding = np.zeros((pad_length, sequence.shape[1], sequence.shape[2]))
         sequence = np.concatenate([sequence, padding], axis=0)
     
@@ -181,7 +181,7 @@ def preprocess_sequence(sequence):
     dx2[2:] = selected_xy[2:] - selected_xy[:-2]
     
     # Flatten and concatenate
-    x_flat = selected_xy.reshape(CROP_LEN, -1)
+    x_flat = selected_xy.reshape(MAX_LEN, -1)
     #dx_flat = dx.reshape(MAX_LEN, -1)
     #dx2_flat = dx2.reshape(MAX_LEN, -1)
     
