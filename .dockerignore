@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.git/
+wandb/
+data/
+models/
+tools/
+train/
+validation/
+documents/
+deploy/
+*.db
