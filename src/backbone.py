@@ -2,7 +2,7 @@
 import os
 os.environ["KERAS_BACKEND"] = "tensorflow"
 from .utils import Preprocess
-from .config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
+from .config import MAX_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
 import tensorflow as tf
 import keras
 import itertools
@@ -315,7 +315,7 @@ class TFLiteModel(tf.Module):
         outputs = self.islr_model(x)  # Call single model directly
         return {'outputs': outputs}
 
-def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES):
+def get_model(max_len=MAX_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES):
     """
     Creates a model for sequence classification using a combination of convolutional layers and transformer blocks.
 
