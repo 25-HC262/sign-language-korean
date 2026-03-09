@@ -1,6 +1,8 @@
 # src/utils.py
-from .config import MAX_LEN, POINT_LANDMARKS
 import tensorflow as tf
+
+from .config import CROP_LEN, POINT_LANDMARKS
+
 
 def tf_nan_mean(x, axis=0, keepdims=False):
     """
@@ -22,7 +24,7 @@ class Preprocess(tf.keras.layers.Layer):
     Preprocessing layer for OpenPose input data.
     """
     
-    def __init__(self, max_len=MAX_LEN, point_landmarks=POINT_LANDMARKS, **kwargs):
+    def __init__(self, max_len=CROP_LEN, point_landmarks=POINT_LANDMARKS, **kwargs):
         super().__init__(**kwargs)
         self.max_len = max_len
         self.point_landmarks = point_landmarks
