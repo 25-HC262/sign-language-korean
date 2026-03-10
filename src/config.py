@@ -3,13 +3,28 @@ import datetime
 import json
 import os
 
+# ============= KOREAN SIGN LANGUAGE SENTENCES =============
+# 경로 안정화
+CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(CONFIG_DIR, ".."))
+
+# 라벨링 데이터
+label_map_name = "primary_label_map.json"
+LABEL_MAP_PATH = os.path.join(PROJECT_ROOT, "src", label_map_name)
+if LABEL_MAP_PATH.exists():
+    with open(LABEL_MAP_PATH, 'r', encoding='utf-8') as f:
+        KSL_SENTENCES = json.load(f)
+else:
+    raise FileNotFoundError(f"라벨 맵 파일을 찾을 수 없습니다: {LABEL_MAP_PATH}")
+DIRECTIONS = ['D', 'F', 'L', 'R', 'U']
+
 # Model parameters
 THRESHOLD = 0.5
-SEQ_LEN = 60
+SEQ_LEN = 60  # 현재 test에서 사용 중. 통일 필요한지 고민할 것.
 ROWS_PER_FRAME = 137 # 제거 필요.
 CROP_LEN = 125
 MAX_LEN = 340 # CROP_LEN # 최대 프레임 길이 (매번 계산할 수 없으므로 수동 계산)
-NUM_CLASSES = 5
+NUM_CLASSES = len(KSL_SENTENCES)
 PAD = 0. #-100.
 
 # Training parameters
@@ -171,23 +186,23 @@ CHANNELS = DIM * NUM_NODES  # x, y for each point
 # ==========================================
 # 전역 패스(Path) 변수 설정
 # ==========================================
-"""
-1. 다운로드/업로드 저장소 선택
-    - 다운로드: -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
-        명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
-    - 업로드: -u 혹은 --upload 뒤에 L,S,G 중 하나를 받도록 설정
-        명령어 예시: `python -m model.gloss_transformer -u G` 혹은 `-upload G`
-2. umap 모델 선택
-    --umap 뒤에 모델명
-    명령어 예시: `python -m model.gloss_transformer --umap "umap.keras"`
-3. gloss 모델 선택
-    -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
-    명령어 예시: `python -m model.gloss_transformer -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
-4. gloss 모델 종류 선택
-    --gmt 혹은 --gloss_model_type으로 모델 종류 선택
-    명령어 예시: `python -m model.gloss_transformer --gmt "transformer"` 혹은 `python -m model.gloss_transformer --gloss_model_type "transformer"`
-"""
 def get_config_args():
+    """
+    1. 다운로드/업로드 저장소 선택
+        - 다운로드: -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
+            명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
+        - 업로드: -u 혹은 --upload 뒤에 L,S,G 중 하나를 받도록 설정
+            명령어 예시: `python -m model.gloss_transformer -u G` 혹은 `-upload G`
+    2. umap 모델 선택
+        --umap 뒤에 모델명
+        명령어 예시: `python -m model.gloss_transformer --umap "umap.keras"`
+    3. gloss 모델 선택
+        -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
+        명령어 예시: `python -m model.gloss_transformer -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
+    4. gloss 모델 종류 선택
+        --gmt 혹은 --gloss_model_type으로 모델 종류 선택
+        명령어 예시: `python -m model.gloss_transformer --gmt "transformer"` 혹은 `python -m model.gloss_transformer --gloss_model_type "transformer"`
+    """
     parser = argparse.ArgumentParser()
 
     # 저장소 선택 옵션 - args.storage에 저장
@@ -231,17 +246,14 @@ STORAGE_MODE = args.storage
 UPLOAD_MODE = args.upload
 SELECTED_GM_TYPE = args.gmt
 
-# 경로 안정화
-CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(CONFIG_DIR, ".."))
-
 date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 
 """TO-DO: 기본 버킷명으로 통일"""
+# 테스트 폴더 추가할 것!
 base_map = {
-    "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints"),
-    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints"),
-    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints")
+    "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints", "gs://test-openpose-keypoint"),
+    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints", "s3://test-openpose-keypoints"),
+    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints", "data/test-openpose-keypoints")
 }
 # 새로운 모델 저장
 names = {
@@ -256,7 +268,7 @@ files = {
 }
 
 # 로컬 베이스는 항상 필요
-L_DATA, L_UMAP, L_GM, L_CKPT = (os.path.join(PROJECT_ROOT, L_PATH) for L_PATH in base_map['L'])
+L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST = (os.path.join(PROJECT_ROOT, L_PATH) for L_PATH in base_map['L'])
 L_TOOLS = os.path.join(PROJECT_ROOT, "tools")
 for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS]:
     os.makedirs(path, exist_ok=True)
@@ -298,14 +310,6 @@ OPTUNA_STUDY_NAME = "transformers_optuna_study"
 OPTUNA_MODEL = "transformer"
 BEST_PARAMS_PATH = f"{L_GM}/best_params-{date_idx}.json"
 N_TRIALS = 20
-
-# ============= KOREAN SIGN LANGUAGE SENTENCES =============
-try:
-    with open('src/primary_label_map.json', 'r', encoding='utf-8') as f:
-        KSL_SENTENCES = json.load(f)
-except FileNotFoundError:
-    print("Warning: 'label_map.json' not found.")
-DIRECTIONS = ['D', 'F', 'L', 'R', 'U']
 
 if __name__ == "__main__":
     print(f"Number of selected keypoints: {NUM_NODES}")
