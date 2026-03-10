@@ -42,16 +42,16 @@ jobs:
 
       - name: Upload redeploy script to VM
         run: |
+          gcloud compute scp deploy/redeploy.sh \
+            sign-language-model:~/redeploy.sh \
+            --zone=asia-northeast3-a \
+            --tunnel-through-iap \
+            --quiet
           gcloud compute ssh sign-language-model \
             --zone=asia-northeast3-a \
             --tunnel-through-iap \
             --quiet \
-            --command="mkdir -p /opt/sign-language-korean/deploy"
-          gcloud compute scp deploy/redeploy.sh \
-            sign-language-model:/opt/sign-language-korean/deploy/redeploy.sh \
-            --zone=asia-northeast3-a \
-            --tunnel-through-iap \
-            --quiet
+            --command="sudo mkdir -p /opt/sign-language-korean/deploy && sudo mv ~/redeploy.sh /opt/sign-language-korean/deploy/redeploy.sh"
 
       - name: Deploy to GCE via IAP SSH
         run: |
@@ -59,4 +59,4 @@ jobs:
             --zone=asia-northeast3-a \
             --tunnel-through-iap \
             --quiet \
-            --command="bash /opt/sign-language-korean/deploy/redeploy.sh ${{ env.IMAGE }}:${{ github.sha }}"
+            --command="sudo bash /opt/sign-language-korean/deploy/redeploy.sh ${{ env.IMAGE }}:${{ github.sha }}"
