@@ -1,3 +1,4 @@
+import json
 import os
 os.environ["KERAS_BACKEND"] = "tensorflow"
 from collections import deque
@@ -44,6 +45,11 @@ except Exception as e:
 
 # -- FastAPI 앱 및 WebSocket 엔드포인트 --
 app = FastAPI()
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "model_loaded": model is not None}
+
 
 def _make_holistic():
     return mp_holistic.Holistic(
