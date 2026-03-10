@@ -699,7 +699,8 @@ if __name__=="__main__":
     print("="*60)
     decoder.summary()
 
-    directory_path = Path('../data/openpose_keypoints/NIA_SL_SEN0181/NIA_SL_SEN0181_D/NIA_SL_SEN0181_REAL01_D')
+    directory_path = Path(
+        '../data/openpose-keypoints/NIA_SL_SEN0181/NIA_SL_SEN0181_D/NIA_SL_SEN0181_REAL01_D')
     json_files = list(directory_path.glob('*.json'))[:10]
 
     seq = []
