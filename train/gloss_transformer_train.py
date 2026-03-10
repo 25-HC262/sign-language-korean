@@ -12,12 +12,11 @@ from src.backbone import get_model, TFLiteModel
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     NUM_NODES, CHANNELS, VALIDATION_SPLIT, STORAGE_MODE, SELECTED_GM_TYPE, \
     WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, WANDB_GM_TAGS, \
-    LOCAL_PATHS, LOAD_GM, LOAD_DATA, UMAP_OUTPUT_DIM, WEIGHT_DECAY
-from load_data.create_dataset import TrainDataLoader
+    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY
+from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
 
-def train_model(data_path: str,
-                learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
+def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
                 max_sequence_len: int=CROP_LEN
                 ):
     # print(" ============== 받은 하이퍼파라미터 ============== ")
@@ -67,7 +66,10 @@ def train_model(data_path: str,
         }
     )
     print("\nLoading training data...")
-    train_dataset, val_dataset, test_dataset = TrainDataLoader(data_path=data_path, max_len=max_sequence_len, is_training_transformer=True).create_transformer_dataset(batch_size=batch_size)
+    train_dataset, val_dataset, test_dataset = DataSetter(
+        max_seq_len=max_sequence_len,
+        batch_size=batch_size
+    ).get_datasets()
 
     # 1. 모델 생성
     print("\nCreating model...")
@@ -223,6 +225,4 @@ if __name__ == "__main__":
     args = get_model_args()
 
     # 3. 모델 학습
-    history = train_model(data_path=LOAD_DATA,
-                          # 사용자 옵션 사용
-                          learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl)
+    history = train_model(learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl)

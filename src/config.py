@@ -218,7 +218,8 @@ def get_config_args():
         "-u", "--upload",
         choices=["L", "S", "G"],
         default="L",
-        help="Storage type: L(Local), S(S3), G(GCS)"    )
+        help="Storage type: L(Local), S(S3), G(GCS)"
+    )
 
     # umap 모델 선택 옵션 - args.umap에 저장
     parser.add_argument(
@@ -270,7 +271,7 @@ files = {
 # 로컬 베이스는 항상 필요
 L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST = (os.path.join(PROJECT_ROOT, L_PATH) for L_PATH in base_map['L'])
 L_TOOLS = os.path.join(PROJECT_ROOT, "tools")
-for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS]:
+for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS, L_TEST]:
     os.makedirs(path, exist_ok=True)
 L_PREPROCESSED_DATA = os.path.join(PROJECT_ROOT, "data/processed")
 print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
