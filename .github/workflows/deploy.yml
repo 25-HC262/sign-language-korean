@@ -40,6 +40,19 @@ jobs:
           docker push "${{ env.IMAGE }}:${{ github.sha }}"
           docker push "${{ env.IMAGE }}:latest"
 
+      - name: Upload redeploy script to VM
+        run: |
+          gcloud compute ssh sign-language-model \
+            --zone=asia-northeast3-a \
+            --tunnel-through-iap \
+            --quiet \
+            --command="mkdir -p /opt/sign-language-korean/deploy"
+          gcloud compute scp deploy/redeploy.sh \
+            sign-language-model:/opt/sign-language-korean/deploy/redeploy.sh \
+            --zone=asia-northeast3-a \
+            --tunnel-through-iap \
+            --quiet
+
       - name: Deploy to GCE via IAP SSH
         run: |
           gcloud compute ssh sign-language-model \
