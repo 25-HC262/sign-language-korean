@@ -7,27 +7,30 @@ import keras
 from src.config import POINT_LANDMARKS, UMAP_LOAD_PATH
 
 
-def mediapipe_hands_to_openpose_format(mp_hand_landmarks, image_width, image_height):
-    hand_keypoints = np.zeros((21, 3))
-    if mp_hand_landmarks:
-        for i, landmark in enumerate(mp_hand_landmarks):
-            hand_keypoints[i] = [landmark.x * image_width, landmark.y * image_height, 1.0]
-    return hand_keypoints
-
-
-def mediapipe_to_openpose_keypoints(results, image_width, image_height):
+def mediapipe_to_openpose_keypoints(pose_result, hand_result, image_width, image_height):
     pose = np.zeros((25, 3)); face = np.zeros((70, 3))
     left_hand = np.zeros((21, 3)); right_hand = np.zeros((21, 3))
+
     def to_pixel_coords(landmark):
         return [landmark.x * image_width, landmark.y * image_height, landmark.visibility if hasattr(landmark, 'visibility') else 1.0]
-    if results.pose_landmarks:
-        mp_pose = results.pose_landmarks  # 0.10.x: .landmark 없이 직접 리스트
+
+    # Pose (PoseLandmarker 결과: pose_landmarks[0] = 첫 번째 사람의 랜드마크 리스트)
+    if pose_result.pose_landmarks:
+        mp_pose = pose_result.pose_landmarks[0]
         pose[0] = to_pixel_coords(mp_pose[0])
         pose[1] = [(to_pixel_coords(mp_pose[11])[0] + to_pixel_coords(mp_pose[12])[0]) / 2, (to_pixel_coords(mp_pose[11])[1] + to_pixel_coords(mp_pose[12])[1]) / 2, 1.0]
         pose[2] = to_pixel_coords(mp_pose[12]); pose[3] = to_pixel_coords(mp_pose[14]); pose[4] = to_pixel_coords(mp_pose[16])
         pose[5] = to_pixel_coords(mp_pose[11]); pose[6] = to_pixel_coords(mp_pose[13]); pose[7] = to_pixel_coords(mp_pose[15])
-    left_hand = mediapipe_hands_to_openpose_format(results.left_hand_landmarks, image_width, image_height)
-    right_hand = mediapipe_hands_to_openpose_format(results.right_hand_landmarks, image_width, image_height)
+
+    # Hands (HandLandmarker 결과: hand_landmarks[i] = i번째 손, handedness[i][0].category_name = "Left"/"Right")
+    if hand_result.hand_landmarks:
+        for landmarks, handedness in zip(hand_result.hand_landmarks, hand_result.handedness):
+            hand_keypoints = np.array([[lm.x * image_width, lm.y * image_height, 1.0] for lm in landmarks])
+            if handedness[0].category_name == "Left":
+                left_hand = hand_keypoints
+            else:
+                right_hand = hand_keypoints
+
     return np.concatenate([pose, face, left_hand, right_hand], axis=0)
 
 
