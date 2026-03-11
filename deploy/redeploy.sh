@@ -24,7 +24,7 @@ docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
   -p 127.0.0.1:${PORT}:8000 \
-  -v "${MODEL_DIR}:/app/models:ro" \
+  -v "${MODEL_DIR}:/app/models" \
   --memory="6g" \
   --cpus="2" \
   "$IMAGE"
@@ -32,14 +32,20 @@ docker run -d \
 echo "==> [5/5] 헬스체크 (최대 120초 대기, 모델 로딩 포함)"
 for i in $(seq 1 24); do
   sleep 5
-  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${PORT}/health 2>/dev/null || echo "000")
+  # 컨테이너가 여전히 실행 중인지 확인
+  if ! docker ps --filter "name=${CONTAINER_NAME}" --filter "status=running" --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+    echo "ERROR: 컨테이너가 실행 중이 아닙니다. 로그:"
+    docker logs "$CONTAINER_NAME" --tail 30
+    break
+  fi
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${PORT}/health 2>/dev/null)
   if [ "$HTTP_STATUS" = "200" ]; then
     echo "헬스체크 통과 ($((i * 5))초 경과)"
     echo "$IMAGE" > "$LAST_IMAGE_FILE"
     echo "배포 완료: $IMAGE"
     exit 0
   fi
-  echo "  대기 중... ($((i * 5))초 경과, HTTP 상태: ${HTTP_STATUS})"
+  echo "  대기 중... ($((i * 5))초 경과, HTTP 상태: ${HTTP_STATUS:-000})"
 done
 
 # 헬스체크 실패 → 이전 이미지로 롤백
@@ -54,7 +60,7 @@ if [ -n "$PREVIOUS_IMAGE" ]; then
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     -p 127.0.0.1:${PORT}:8000 \
-    -v "${MODEL_DIR}:/app/models:ro" \
+    -v "${MODEL_DIR}:/app/models" \
     --memory="6g" \
     --cpus="2" \
     "$PREVIOUS_IMAGE"
