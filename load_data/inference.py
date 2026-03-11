@@ -10,7 +10,7 @@ from src.config import POINT_LANDMARKS, UMAP_LOAD_PATH
 def mediapipe_hands_to_openpose_format(mp_hand_landmarks, image_width, image_height):
     hand_keypoints = np.zeros((21, 3))
     if mp_hand_landmarks:
-        for i, landmark in enumerate(mp_hand_landmarks.landmark):
+        for i, landmark in enumerate(mp_hand_landmarks):
             hand_keypoints[i] = [landmark.x * image_width, landmark.y * image_height, 1.0]
     return hand_keypoints
 
@@ -21,7 +21,7 @@ def mediapipe_to_openpose_keypoints(results, image_width, image_height):
     def to_pixel_coords(landmark):
         return [landmark.x * image_width, landmark.y * image_height, landmark.visibility if hasattr(landmark, 'visibility') else 1.0]
     if results.pose_landmarks:
-        mp_pose = results.pose_landmarks.landmark
+        mp_pose = results.pose_landmarks  # 0.10.x: .landmark 없이 직접 리스트
         pose[0] = to_pixel_coords(mp_pose[0])
         pose[1] = [(to_pixel_coords(mp_pose[11])[0] + to_pixel_coords(mp_pose[12])[0]) / 2, (to_pixel_coords(mp_pose[11])[1] + to_pixel_coords(mp_pose[12])[1]) / 2, 1.0]
         pose[2] = to_pixel_coords(mp_pose[12]); pose[3] = to_pixel_coords(mp_pose[14]); pose[4] = to_pixel_coords(mp_pose[16])
