@@ -20,8 +20,16 @@ from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN
 LABEL_MAP = KSL_SENTENCES
 idx_to_label = {i: v for i, (k, v) in enumerate(LABEL_MAP.items())}
 
-# MediaPipe 초기화
-mp_holistic = mp.solutions.holistic
+# MediaPipe 초기화 (0.10.x Tasks API)
+_holistic_options = mp.tasks.vision.HolisticLandmarkerOptions(
+    base_options=mp.tasks.python.BaseOptions(
+        model_asset_path="/app/holistic_landmarker.task"
+    ),
+    running_mode=mp.tasks.vision.RunningMode.IMAGE,
+    min_face_detection_confidence=0.5,
+    min_pose_detection_confidence=0.5,
+    min_hand_landmarks_confidence=0.5,
+)
 
 print("모델 로딩 중...")
 tf.get_logger().setLevel('ERROR')
@@ -52,11 +60,7 @@ async def health():
 
 
 def _make_holistic():
-    return mp_holistic.Holistic(
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-        model_complexity=1
-    )
+    return mp.tasks.vision.HolisticLandmarker.create_from_options(_holistic_options)
 
 
 @app.websocket("/ws")
@@ -124,8 +128,8 @@ async def websocket_endpoint(websocket: WebSocket):
             # MediaPipe 처리
             image_height, image_width, _ = frame.shape
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            rgb_frame.flags.writeable = False
-            results = user_holistics[user_id].process(rgb_frame)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+            results = user_holistics[user_id].detect(mp_image)
 
             # 키포인트 추출 및 시퀀스 추가
             keypoints = mediapipe_to_openpose_keypoints(results, image_width, image_height)
