@@ -10,7 +10,7 @@ import tensorflow as tf
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import keras
-from load_data.create_dataset import mediapipe_to_openpose_keypoints, \
+from load_data.inference import mediapipe_to_openpose_keypoints, \
     main_preprocess_sequence
 from src.backbone import CausalDWConv1D, ECA, LateDropout, \
     MultiHeadSelfAttention
