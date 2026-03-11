@@ -5,6 +5,8 @@ from collections import deque
 
 import cv2
 import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
 import numpy as np
 import tensorflow as tf
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -21,18 +23,18 @@ LABEL_MAP = KSL_SENTENCES
 idx_to_label = {i: v for i, (k, v) in enumerate(LABEL_MAP.items())}
 
 # MediaPipe 초기화 (0.10.x Tasks API)
-pose_landmarker = mp.tasks.vision.PoseLandmarker.create_from_options(
-    mp.tasks.vision.PoseLandmarkerOptions(
-        base_options=mp.tasks.python.BaseOptions(model_asset_path="/app/pose_landmarker_full.task"),
-        running_mode=mp.tasks.vision.RunningMode.IMAGE,
+pose_landmarker = mp_vision.PoseLandmarker.create_from_options(
+    mp_vision.PoseLandmarkerOptions(
+        base_options=mp_python.BaseOptions(model_asset_path="/app/pose_landmarker_full.task"),
+        running_mode=mp_vision.RunningMode.IMAGE,
         min_pose_detection_confidence=0.5,
         min_pose_presence_confidence=0.5,
     )
 )
-hand_landmarker = mp.tasks.vision.HandLandmarker.create_from_options(
-    mp.tasks.vision.HandLandmarkerOptions(
-        base_options=mp.tasks.python.BaseOptions(model_asset_path="/app/hand_landmarker.task"),
-        running_mode=mp.tasks.vision.RunningMode.IMAGE,
+hand_landmarker = mp_vision.HandLandmarker.create_from_options(
+    mp_vision.HandLandmarkerOptions(
+        base_options=mp_python.BaseOptions(model_asset_path="/app/hand_landmarker.task"),
+        running_mode=mp_vision.RunningMode.IMAGE,
         num_hands=2,
         min_hand_detection_confidence=0.5,
         min_hand_presence_confidence=0.5,
