@@ -4,6 +4,7 @@
 
 # 데이터 관련
 /data
+.DS_Store
 
 # IDE 설정 & 가상환경 설정
 .idea/
@@ -22,3 +23,7 @@ wandb/
 
 # optuna db
 *.db
+
+# 모델 관련
+models/
+*.keras

@@ -13,10 +13,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# HolisticLandmarker 모델 파일 다운로드
+# MediaPipe Tasks 모델 파일 다운로드
 RUN curl -fsSL \
-    "https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/latest/holistic_landmarker.task" \
-    -o /app/holistic_landmarker.task
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task" \
+    -o /app/pose_landmarker_full.task && \
+    curl -fsSL \
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task" \
+    -o /app/hand_landmarker.task
 
 COPY . .
 

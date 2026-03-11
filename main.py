@@ -21,14 +21,22 @@ LABEL_MAP = KSL_SENTENCES
 idx_to_label = {i: v for i, (k, v) in enumerate(LABEL_MAP.items())}
 
 # MediaPipe 초기화 (0.10.x Tasks API)
-_holistic_options = mp.tasks.vision.HolisticLandmarkerOptions(
-    base_options=mp.tasks.python.BaseOptions(
-        model_asset_path="/app/holistic_landmarker.task"
-    ),
-    running_mode=mp.tasks.vision.RunningMode.IMAGE,
-    min_face_detection_confidence=0.5,
-    min_pose_detection_confidence=0.5,
-    min_hand_landmarks_confidence=0.5,
+pose_landmarker = mp.tasks.vision.PoseLandmarker.create_from_options(
+    mp.tasks.vision.PoseLandmarkerOptions(
+        base_options=mp.tasks.python.BaseOptions(model_asset_path="/app/pose_landmarker_full.task"),
+        running_mode=mp.tasks.vision.RunningMode.IMAGE,
+        min_pose_detection_confidence=0.5,
+        min_pose_presence_confidence=0.5,
+    )
+)
+hand_landmarker = mp.tasks.vision.HandLandmarker.create_from_options(
+    mp.tasks.vision.HandLandmarkerOptions(
+        base_options=mp.tasks.python.BaseOptions(model_asset_path="/app/hand_landmarker.task"),
+        running_mode=mp.tasks.vision.RunningMode.IMAGE,
+        num_hands=2,
+        min_hand_detection_confidence=0.5,
+        min_hand_presence_confidence=0.5,
+    )
 )
 
 print("모델 로딩 중...")
@@ -59,18 +67,13 @@ async def health():
     return {"status": "ok", "model_loaded": model is not None}
 
 
-def _make_holistic():
-    return mp.tasks.vision.HolisticLandmarker.create_from_options(_holistic_options)
-
-
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("스트리밍 서버가 연결되었습니다.")
 
-    # userId별 시퀀스 deque와 MediaPipe 인스턴스를 독립적으로 유지
+    # userId별 시퀀스 deque (MediaPipe는 전역 인스턴스 공유)
     user_sequences: dict[str, deque] = {}
-    user_holistics: dict[str, any] = {}
 
     try:
         while True:
@@ -86,14 +89,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         user_id = ctrl.get("userId")
                         if user_id and user_id not in user_sequences:
                             user_sequences[user_id] = deque(maxlen=SEQ_LEN)
-                            user_holistics[user_id] = _make_holistic()
-                            print(f"[{user_id}] 시퀀스 및 MediaPipe 초기화")
+                            print(f"[{user_id}] 시퀀스 초기화")
 
                     elif msg_type == "stop_stream":
                         user_id = ctrl.get("userId")
-                        if user_id in user_holistics:
-                            user_holistics[user_id].close()
-                            del user_holistics[user_id]
                         user_sequences.pop(user_id, None)
                         print(f"[{user_id}] 리소스 정리 완료")
 
@@ -116,7 +115,6 @@ async def websocket_endpoint(websocket: WebSocket):
             # stream_config 없이 프레임이 먼저 도착한 경우 lazy 초기화
             if user_id not in user_sequences:
                 user_sequences[user_id] = deque(maxlen=SEQ_LEN)
-                user_holistics[user_id] = _make_holistic()
                 print(f"[{user_id}] lazy 초기화")
 
             # 이미지 디코딩
@@ -129,10 +127,11 @@ async def websocket_endpoint(websocket: WebSocket):
             image_height, image_width, _ = frame.shape
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-            results = user_holistics[user_id].detect(mp_image)
+            pose_result = pose_landmarker.detect(mp_image)
+            hand_result = hand_landmarker.detect(mp_image)
 
             # 키포인트 추출 및 시퀀스 추가
-            keypoints = mediapipe_to_openpose_keypoints(results, image_width, image_height)
+            keypoints = mediapipe_to_openpose_keypoints(pose_result, hand_result, image_width, image_height)
             user_sequences[user_id].append(keypoints)
 
             # 60프레임 시퀀스가 쌓이면 예측
@@ -164,7 +163,3 @@ async def websocket_endpoint(websocket: WebSocket):
         print("스트리밍 서버 연결이 끊겼습니다.")
     except Exception as e:
         print(f"오류 발생: {e}")
-    finally:
-        for uid, holistic in user_holistics.items():
-            holistic.close()
-            print(f"[{uid}] MediaPipe 리소스 정리 완료")
