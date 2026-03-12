@@ -14,7 +14,7 @@ from optuna.visualization.matplotlib import (
 )
 matplotlib.use('Agg') # GUI 없이 파일 저장만 가능하게 하는 백엔드
 
-from load_data.create_dataset import TrainDataLoader
+from load_data.create_dataset import DataSetter
 from src.backbone import get_model
 from src.config import OPTUNA_TRIALS_PATH, LOAD_DATA, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
     BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM, \
@@ -30,7 +30,11 @@ def objective(trial):
     sequence_length = trial.suggest_int("sequence_length", 100, 380)
 
     # 2. 데이터 불러오기
-    train_dataset, val_dataset, _ = loader.create_gm_train_dataset(batch_size=batch_size, max_len=sequence_length)
+    train_dataset, val_dataset, _ = DataSetter(
+        max_seq_len=sequence_length,
+        batch_size=batch_size
+    ).get_datasets()
+    
     # 2-1. 학습 데이터 줄이기
     num_train = int(loader.train_size * subset_ratio)
     train_dataset = train_dataset.shuffle(buffer_size=1000, seed=42)
