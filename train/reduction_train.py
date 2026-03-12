@@ -48,7 +48,7 @@ class DataDimensionReducer:
         self.samples_per_class = samples_per_class
         print("Creating dataset...")
         self.trainer = TrainDataLoader(data_path=data_path, samples_per_class=samples_per_class)
-        self.train_dataset, self.test_dataset = self.trainer.create_umap_dataset()
+        self.train_dataset, self.test_dataset = self.trainer.create_umap_train_dataset()
 
         self.dims = (NUM_NODES*2, )  # 49*2
         self.n_components = output_dim

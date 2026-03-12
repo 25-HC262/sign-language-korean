@@ -36,7 +36,7 @@ WEIGHT_DECAY = 0.01
 EPOCHS = 300
 EPOCHS_FOR_UMAP = 100
 VALIDATION_SPLIT = 0.2
-TEST_SPLIT = 0.05
+TEST_RATE = 1
 UMAP_OUTPUT_DIM = 32
 OUTPUT_DIM = 98
 
@@ -277,7 +277,7 @@ L_PREPROCESSED_DATA = os.path.join(PROJECT_ROOT, "data/processed")
 print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 
 # LOAD_BASE: 사용자 선택 모드(UPLOAD_MODE)에서 가져옴
-LOAD_DATA, LOAD_UMAP, LOAD_GM, _ = base_map.get(UPLOAD_MODE, base_map["L"])
+LOAD_DATA, LOAD_UMAP, LOAD_GM, _, LOAD_TEST = base_map.get(UPLOAD_MODE, base_map["L"])
 
 # 최종 경로
 UMAP_LOAD_PATH = f'{LOAD_UMAP}/{args.umap}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL

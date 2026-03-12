@@ -30,7 +30,7 @@ def objective(trial):
     sequence_length = trial.suggest_int("sequence_length", 100, 380)
 
     # 2. 데이터 불러오기
-    train_dataset, val_dataset, _ = loader.create_transformer_dataset(batch_size=batch_size, max_len=sequence_length)
+    train_dataset, val_dataset, _ = loader.create_gm_train_dataset(batch_size=batch_size, max_len=sequence_length)
     # 2-1. 학습 데이터 줄이기
     num_train = int(loader.train_size * subset_ratio)
     train_dataset = train_dataset.shuffle(buffer_size=1000, seed=42)
@@ -144,7 +144,7 @@ if __name__=="__main__":
     )
 
     # 3. 데이터 로드
-    loader = TrainDataLoader(data_path=LOAD_DATA, is_training_transformer=True)
+    loader = TrainDataLoader(data_path=LOAD_DATA, dim_reduction=True)
 
     print(f" ============== parameter trials {n_trials}번 시도 시작! ============== ")
     study.optimize(objective, n_trials=n_trials)
