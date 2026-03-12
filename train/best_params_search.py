@@ -16,9 +16,9 @@ matplotlib.use('Agg') # GUI 없이 파일 저장만 가능하게 하는 백엔�
 
 from load_data.create_dataset import DataSetter
 from src.backbone import get_model
-from src.config import OPTUNA_TRIALS_PATH, LOAD_DATA, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
+from src.config import OPTUNA_TRIALS_PATH, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
     BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM, \
-    L_TOOLS
+    L_TOOLS, VALIDATION_SPLIT, MAX_LEN
 
 
 def objective(trial):
@@ -27,21 +27,20 @@ def objective(trial):
     batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
     num_train_epochs = trial.suggest_int("num_train_epochs", 30, EPOCHS)
     weight_decay = trial.suggest_float("weight_decay", 0.0, 0.3)
-    sequence_length = trial.suggest_int("sequence_length", 100, 380)
+    sequence_length = trial.suggest_int("sequence_length", 100, MAX_LEN)
 
     # 2. 데이터 불러오기
     train_dataset, val_dataset, _ = DataSetter(
         max_seq_len=sequence_length,
         batch_size=batch_size
     ).get_datasets()
-    
     # 2-1. 학습 데이터 줄이기
-    num_train = int(loader.train_size * subset_ratio)
+    num_train = int(80*NUM_CLASSES*(1-VALIDATION_SPLIT) * subset_ratio)
     train_dataset = train_dataset.shuffle(buffer_size=1000, seed=42)
     small_train_dataset = train_dataset.take(max(num_train,1))
 
     # 2-2. 검증 데이터 줄이기
-    num_val = int(loader.val_size * subset_ratio)
+    num_val = int(80*NUM_CLASSES*VALIDATION_SPLIT * subset_ratio)
     val_dataset = val_dataset.shuffle(buffer_size=1000, seed=42)
     small_val_dataset = val_dataset.take(max(num_val,1))
 
@@ -147,16 +146,13 @@ if __name__=="__main__":
         load_if_exists=True
     )
 
-    # 3. 데이터 로드
-    loader = TrainDataLoader(data_path=LOAD_DATA, dim_reduction=True)
-
     print(f" ============== parameter trials {n_trials}번 시도 시작! ============== ")
     study.optimize(objective, n_trials=n_trials)
 
     print(f"Best value: {study.best_value}")
     print(f"Best params: {study.best_params}")
 
-    # 4. 최적 파라미터 추출
+    # 3. 최적 파라미터 추출
     import json, datetime
     date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
     with open(BEST_PARAMS_PATH, "w") as f:
@@ -164,8 +160,8 @@ if __name__=="__main__":
 
     plt.style.use('ggplot')
 
-    # 5. 분석 결과 도출
-    # 5-1. 맵 설정 (함수 객체 자체를 저장하여 루프에서 실행)
+    # 4. 분석 결과 도출
+    # 4-1. 맵 설정 (함수 객체 자체를 저장하여 루프에서 실행)
     # (함수, 제목, 저장파일명)
     opt_map = {
         'H': (plot_optimization_history, "Optimization History", "optimization_history.png"),
@@ -178,13 +174,13 @@ if __name__=="__main__":
         import os
         print(f"Drawing {name}...")
 
-        # 5-2. 함수 실행
+        # 4-2. 함수 실행
         ax = plot_func(study)
 
         plt.title(name, fontsize=14)
         plt.tight_layout()
 
-        # 5-3. 경로 결합 및 저장
+        # 4-3. 경로 결합 및 저장
         save_path = os.path.join(L_TOOLS, filename)
         plt.savefig(save_path, dpi=300)
 
