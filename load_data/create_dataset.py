@@ -88,7 +88,7 @@ class DataSetter:
         val_path = dir_path / "val_ds"
         test_path = dir_path / "test_ds"
 
-        def get_datasets_from_path() -> Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], None]:
+        def get_or_create_datasets_from_path() -> Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset]:
             if train_path.exists() and (train_path / "dataset_spec.pb").exists():
                 try:
                     print(f"[*] 기존 데이터셋을 {data_dir}에서 로드 중;")
@@ -101,35 +101,39 @@ class DataSetter:
                     print(f"[!] 로드 실패: {e}. 불완전한 데이터셋을 삭제합니다.")
                     import shutil
                     shutil.rmtree(dir_path, ignore_errors=True)
-                try:
-                    print("[!] 데이터셋 생성을 시작합니다.")
-                    os.makedirs(dir_path, exist_ok=False) # 없으면 기존 데이터 가져오도록 - 에러 발생
-                    # [생성] 원본 MAX_LEN과 지정된 batch_size로 생성됨
-                    loader = TrainDataLoader(
-                        data_path=LOAD_DATA, max_len=MAX_LEN, dim_reduction=True
-                    )
-                    train_ds, val_ds = loader.create_gm_train_dataset(batch_size=batch_size)
-                    test_ds = loader.create_test_dataset(batch_size=batch_size)
+            try:
+                print("[!] 데이터셋 생성을 시작합니다.")
+                os.makedirs(dir_path, exist_ok=False) # 없으면 기존 데이터 가져오도록 - 에러 발생
+                # [생성] 원본 MAX_LEN과 지정된 batch_size로 생성됨
+                loader = TrainDataLoader(
+                    data_path=LOAD_DATA, max_len=MAX_LEN, dim_reduction=True
+                )
+                train_ds, val_ds = loader.create_gm_train_dataset(batch_size=batch_size)
+                test_ds = loader.create_test_dataset(batch_size=batch_size)
 
-                    # [저장] unbatch 상태로 저장하여 범용성 확보
-                    train_ds.unbatch().save(str(train_path)); val_ds.unbatch().save(str(val_path)); test_ds.unbatch().save(str(test_path))
+                # [저장] unbatch 상태로 저장하여 범용성 확보
+                train_ds.unbatch().save(str(train_path)); val_ds.unbatch().save(str(val_path)); test_ds.unbatch().save(str(test_path))
 
-                    # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
-                    return (
-                        load_and_prep(train_path),
-                        load_and_prep(val_path),
-                        load_and_prep(test_path)
-                    )
-                except Exception as e:
-                    print(f"[!] 생성 도중 에러 발생: {e}. 생성 중인 폴더를 삭제합니다.")
-                    import shutil
-                    if dir_path.exists():
-                        shutil.rmtree(dir_path)
-                    raise e # 최상위 에러는 알려줌
+                # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
+                return (
+                    load_and_prep(train_path),
+                    load_and_prep(val_path),
+                    load_and_prep(test_path)
+                )
+            except Exception as e:
+                print(f"[!] 생성 도중 에러 발생: {e}. 생성 중인 폴더를 삭제합니다.")
+                import shutil
+                if dir_path.exists():
+                    shutil.rmtree(dir_path)
+                raise e # 최상위 에러는 알려줌
 
-        self.final_datasets = get_datasets_from_path()
+        self.final_datasets = get_or_create_datasets_from_path()
 
     def get_datasets(self) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
+        train_ds, val_ds, test_ds = self.final_datasets
+        print(f"훈련 데이터셋 확인: {train_ds.cardinality().numpy()}")
+        print(f"검증 데이터셋 확인: {val_ds.cardinality().numpy()}")
+        print(f"테스트 데이터셋 확인: {test_ds.cardinality().numpy()}")
         return self.final_datasets
 
 class TrainDataLoader:
