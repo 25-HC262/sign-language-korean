@@ -40,6 +40,9 @@ class DataSetter:
         :param data_type:
         :param data_dim:
         """
+        self.max_seq_len = max_seq_len
+        self.batch_size = batch_size
+
         # 입력이 문자열이면 Enum으로 변환, 아니면 그대로 유지
         def to_enum(enum_class: Type[Enum], value: Union[str, Enum]) -> Enum:
             if isinstance(value, str):
@@ -55,27 +58,24 @@ class DataSetter:
             # x shape: (original_max_len, UMAP_OUTPUT_DIM)
             return lambda x, y: (x[:max_len, :], y) # 직렬화 문제로 인해 return x[:self.max_seq_len, :], y 대신
 
-        def load_and_prep(path_or_ds: Union[Path, tf.data.Dataset]) -> tf.data.Dataset:
+        # 최종 배치 처리
+        def _batch_finalize(ds: tf.data.Dataset, target_batch_size: int=BATCH_SIZE) -> tf.data.Dataset:
+            return ds.cache().batch(target_batch_size).prefetch(tf.data.AUTOTUNE) # cache 설정으로 메모리에 올려 속도 극대화
+
+        def seq_and_batch_finalize(path_or_ds: Union[Path, tf.data.Dataset]) -> tf.data.Dataset:
             # 입력이 경로면 로드하고, 데이터셋 객체면 그대로 사용
             if isinstance(path_or_ds, (Path, str)):
                 ds = tf.data.Dataset.load(str(path_or_ds))
             else:
                 ds = path_or_ds
 
-            # unbatch 상태인지 확인
-            ds = ds.unbatch() if hasattr(ds, 'unbatch') else ds
-
-            # 1. 시퀀스 자르기 (길이가 다를 경우만 실행)
+            # 기본 길이(MAX_LEN)가 아닌 경우: 시퀀스 자르기
             if self.max_seq_len < MAX_LEN:
-                return ds.map(truncate_sequence(self.max_seq_len), num_parallel_calls=tf.data.AUTOTUNE) \
-                    .batch(batch_size) \
-                    .prefetch(tf.data.AUTOTUNE)
-            # 2. 공통 처리: 배치 및 프리페치
-            return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+                ds = ds.map(truncate_sequence(self.max_seq_len), num_parallel_calls=tf.data.AUTOTUNE)
+            return _batch_finalize(ds=ds, target_batch_size=self.batch_size)
 
         data_type = to_enum(DataType, data_type)
         data_dim = to_enum(DataDim, data_dim)
-        self.max_seq_len = max_seq_len
 
         # 경로 설정
         umap_use = Path(umap_path).stem if umap_path else "none" # None 설정이 default가 되도록 바꿀 것. & TO-DO. umap 선택 가능하도록
@@ -93,9 +93,9 @@ class DataSetter:
                 try:
                     print(f"[*] 기존 데이터셋을 {data_dir}에서 로드 중;")
                     return (
-                        load_and_prep(train_path),
-                        load_and_prep(val_path),
-                        load_and_prep(test_path)
+                        seq_and_batch_finalize(train_path),
+                        seq_and_batch_finalize(val_path),
+                        seq_and_batch_finalize(test_path)
                     )
                 except Exception as e:
                     print(f"[!] 로드 실패: {e}. 불완전한 데이터셋을 삭제합니다.")
@@ -103,22 +103,27 @@ class DataSetter:
                     shutil.rmtree(dir_path, ignore_errors=True)
             try:
                 print("[!] 데이터셋 생성을 시작합니다.")
-                os.makedirs(dir_path, exist_ok=False) # 없으면 기존 데이터 가져오도록 - 에러 발생
+                os.makedirs(dir_path, exist_ok=True) # 하위 폴더가 생성되지 않은 경우일 수 있음.
                 # [생성] 원본 MAX_LEN과 지정된 batch_size로 생성됨
                 loader = TrainDataLoader(
-                    data_path=LOAD_DATA, max_len=MAX_LEN, dim_reduction=True
+                    data_path=LOAD_DATA, dim_reduction=True
                 )
-                train_ds, val_ds = loader.create_gm_train_dataset(batch_size=batch_size)
-                test_ds = loader.create_test_dataset(batch_size=batch_size)
+                train_ds, val_ds = loader.create_gm_train_dataset()
+                test_ds = loader.create_test_dataset()
 
-                # [저장] unbatch 상태로 저장하여 범용성 확보
-                train_ds.unbatch().save(str(train_path)); val_ds.unbatch().save(str(val_path)); test_ds.unbatch().save(str(test_path))
+                # [저장] MAX_LEN, unbatch 상태인 raw dataset 그대로 저장하여 범용성 확보
+                def save_ds(ds: tf.data.Dataset, path: Union[Path, str]):
+                    tf.data.Dataset.save(ds, str(path))
+
+                save_ds(train_ds, train_path)
+                save_ds(val_ds, val_path)
+                save_ds(test_ds, test_path)
 
                 # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
                 return (
-                    load_and_prep(train_path),
-                    load_and_prep(val_path),
-                    load_and_prep(test_path)
+                    seq_and_batch_finalize(train_ds),
+                    seq_and_batch_finalize(val_ds),
+                    seq_and_batch_finalize(test_ds)
                 )
             except Exception as e:
                 print(f"[!] 생성 도중 에러 발생: {e}. 생성 중인 폴더를 삭제합니다.")
@@ -127,21 +132,16 @@ class DataSetter:
                     shutil.rmtree(dir_path)
                 raise e # 최상위 에러는 알려줌
 
-        self.final_datasets = get_or_create_datasets_from_path()
+        self.final_datasets = get_or_create_datasets_from_path() # train, val, test
 
     def get_datasets(self) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
-        train_ds, val_ds, test_ds = self.final_datasets
-        print(f"훈련 데이터셋 확인: {train_ds.cardinality().numpy()}")
-        print(f"검증 데이터셋 확인: {val_ds.cardinality().numpy()}")
-        print(f"테스트 데이터셋 확인: {test_ds.cardinality().numpy()}")
         return self.final_datasets
 
 class TrainDataLoader:
-    def __init__(self, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=UMAP_LOAD_PATH, max_len=CROP_LEN, samples_per_class=1000, dim_reduction=False):
+    def __init__(self, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=UMAP_LOAD_PATH, samples_per_class=1000, dim_reduction=False):
         self.data_path = data_path
         self.test_data_path = test_data_path
         self.umap_path = umap_path
-        self.max_len = max_len
         self.samples_per_class = samples_per_class # 1000이 적절한지
         self.dim_reduction = dim_reduction
         self.label_map = {name: i for i, name in enumerate(KSL_SENTENCES.keys())}
@@ -162,14 +162,17 @@ class TrainDataLoader:
 
         self.videos = []
 
-    def _base_generator(self, path=None, max_len=None) -> tf.data.Dataset:
-        if max_len is not None:
-            self.max_len = max_len
-
+    def _base_generator(self, path=None) -> tf.data.Dataset:
+        self.max_len = MAX_LEN
         # self.videos 구성
         self._get_all_filepaths(path=path)
+
+        videos_snapshot = list(self.videos)
+        random.seed(42)
+        random.shuffle(videos_snapshot)
+
         def _data_generator():
-            for video in self.videos:
+            for video in videos_snapshot:
                 seq = video['sequence']
                 if len(seq) > self.max_len:
                     seq = seq[:self.max_len]
@@ -184,19 +187,12 @@ class TrainDataLoader:
                 tf.TensorSpec(shape=(), dtype=tf.int32)
             )
         )
-        return full_dataset.shuffle(buffer_size=1024, seed=42, reshuffle_each_iteration=False) # 에폭마다 데이터 섞임 방지
+        return full_dataset
 
-    def _finalize(self, ds: tf.data.Dataset, target_batch_size: int=BATCH_SIZE) -> tf.data.Dataset:
-        return ds.cache().batch(target_batch_size).prefetch(tf.data.AUTOTUNE) # cache 설정으로 메모리에 올려 속도 극대화
-
-    def create_test_dataset(self, batch_size=None, max_len=None) -> tf.data.Dataset:
-        test_dataset = self._base_generator(path=self.test_data_path, max_len=max_len)
+    def create_test_dataset(self) -> tf.data.Dataset:
+        test_dataset = self._base_generator(path=self.test_data_path)
         test_size = int(len(self.videos) * TEST_RATE)
         print(f"테스트 데이터셋 크기 (예상): {test_size}")
-
-        target_batch_size = batch_size if batch_size is not None else BATCH_SIZE
-
-        test_dataset = self._finalize(test_dataset, target_batch_size)
 
         return test_dataset
 
@@ -226,8 +222,8 @@ class TrainDataLoader:
         print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
         return train_dataset, validation_dataset
 
-    def create_gm_train_dataset(self, batch_size=None, max_len=None) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
-        full_dataset = self._base_generator(max_len=max_len) # path는 기본 self.data_path
+    def create_gm_train_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
+        full_dataset = self._base_generator() # path는 기본 self.data_path
         dataset_size = len(self.videos)
         print(f"훈련에 사용되는 전체 데이터셋 크기: {dataset_size}")
         val_size = int(dataset_size * VALIDATION_SPLIT) # 남은 데이터 1:1-VAL로 분리
@@ -237,10 +233,6 @@ class TrainDataLoader:
 
         val_dataset = full_dataset.take(val_size)
         train_dataset = full_dataset.skip(val_size)
-        target_batch_size = batch_size if batch_size is not None else BATCH_SIZE
-
-        val_dataset = self._finalize(val_dataset, target_batch_size)
-        train_dataset = self._finalize(train_dataset, target_batch_size) # OoM이 난다면 해당 설정을 제거해야 함.
 
         print("\nTrain Dataset Spec:\n", train_dataset)
         print("\nValidation Dataset Spec:\n", val_dataset)
