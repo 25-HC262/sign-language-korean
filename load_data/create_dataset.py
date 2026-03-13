@@ -55,8 +55,16 @@ class DataSetter:
             # x shape: (original_max_len, UMAP_OUTPUT_DIM)
             return lambda x, y: (x[:max_len, :], y) # 직렬화 문제로 인해 return x[:self.max_seq_len, :], y 대신
 
-        def load_and_prep(path: Path) -> tf.data.Dataset:
-            ds = tf.data.Dataset.load(str(path))
+        def load_and_prep(path_or_ds: Union[Path, tf.data.Dataset]) -> tf.data.Dataset:
+            # 입력이 경로면 로드하고, 데이터셋 객체면 그대로 사용
+            if isinstance(path_or_ds, (Path, str)):
+                ds = tf.data.Dataset.load(str(path_or_ds))
+            else:
+                ds = path_or_ds
+
+            # unbatch 상태인지 확인
+            ds = ds.unbatch() if hasattr(ds, 'unbatch') else ds
+
             # 1. 시퀀스 자르기 (길이가 다를 경우만 실행)
             if self.max_seq_len < MAX_LEN:
                 return ds.map(truncate_sequence(self.max_seq_len), num_parallel_calls=tf.data.AUTOTUNE) \
@@ -99,13 +107,9 @@ class DataSetter:
             train_ds.unbatch().save(str(train_path)); val_ds.unbatch().save(str(val_path)); test_ds.unbatch().save(str(test_path))
 
             # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
-            if self.max_seq_len < MAX_LEN:
-                def prep_new_ds(ds):
-                    return ds.unbatch().map(truncate_sequence(), num_parallel_calls=tf.data.AUTOTUNE) \
-                        .batch(batch_size).prefetch(tf.data.AUTOTUNE)
-                train_ds = prep_new_ds(train_ds)
-                val_ds = prep_new_ds(val_ds)
-                test_ds = prep_new_ds(test_ds)
+            train_ds = load_and_prep(train_ds)
+            val_ds = load_and_prep(train_ds)
+            test_ds = load_and_prep(train_ds)
 
         self.final_datasets = (train_ds, val_ds, test_ds)
 
