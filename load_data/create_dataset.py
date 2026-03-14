@@ -57,14 +57,6 @@ class DataSetter:
                     return list(enum_class)[0] # 첫번째 항목을 기본값으로 사용
             return value
 
-        def save_gm_dataset(train_ds, val_ds, test_ds):
-            def save_ds(ds: tf.data.Dataset, path: Union[Path, str]):
-                tf.data.Dataset.save(ds, str(path))
-
-            save_ds(train_ds, train_path)
-            save_ds(val_ds, val_path)
-            save_ds(test_ds, test_path)
-
         # x: (original_len, dim) -> (target_len, dim)
         def truncate_sequence(max_len):
             # x shape: (original_max_len, UMAP_OUTPUT_DIM)
@@ -143,7 +135,9 @@ class DataSetter:
                     test_ds = self.loader.create_test_dataset()
 
                     # [저장] MAX_LEN, unbatch 상태인 raw dataset 그대로 저장하여 범용성 확보
-                    save_gm_dataset(train_ds, val_ds, test_ds)
+                    tf.data.Dataset.save(train_ds, str(train_path))
+                    tf.data.Dataset.save(val_ds, str(val_path))
+                    tf.data.Dataset.save(test_ds, str(test_path))
 
                     # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
                     return (
