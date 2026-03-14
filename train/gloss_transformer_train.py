@@ -12,7 +12,7 @@ from src.backbone import get_model, TFLiteModel
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     NUM_NODES, CHANNELS, VALIDATION_SPLIT, STORAGE_MODE, SELECTED_GM_TYPE, \
     WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, WANDB_GM_TAGS, \
-    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY
+    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH
 from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
 
@@ -67,6 +67,7 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     )
     print("\nLoading training data...")
     train_dataset, val_dataset, test_dataset = DataSetter(
+        umap_path=UMAP_LOAD_PATH,
         max_seq_len=max_sequence_len,
         batch_size=batch_size,
         dim_reduction=True
@@ -206,6 +207,8 @@ def get_model_args():
         type=int,
         default=CROP_LEN
     )
+
+    ## config.py에서 umap 모델 선택
 
     args, _ = parser.parse_known_args()
     print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')

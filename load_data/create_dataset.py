@@ -14,7 +14,6 @@ from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SP
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
 from typing import Dict, Any, Tuple
-from collections import defaultdict
 import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
@@ -30,14 +29,18 @@ class DataDim(Enum):
     _2D = "2d"
     _3D = "3d"
 
+class Trainer(Enum):
+    GM = "gm"
+    UMAP = "umap"
+
 class DataSetter:
-    def __init__(self, umap_path: str=UMAP_LOAD_PATH, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
-                 data_type: DataType=DataType.GLOSS, data_dim: DataDim=DataDim._2D,
+    def __init__(self, umap_path: str=None, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
+                 data_type: DataType=DataType.GLOSS, data_dim: DataDim=DataDim._2D, trainer: Trainer=Trainer.GM,
                  max_seq_len: int=MAX_LEN,
                  batch_size: int=BATCH_SIZE,
-                 dim_reduction: bool=True):
+                 dim_reduction: bool=False):
         """
-        :param umap_path: Umap Version. 사용자 옵션`--umap`에서 입력한 Umap 차원축소기 파일명에 따라 경로가 자동 주입됨.
+        :param umap_path: Umap Version. 사용자 옵션`--umap`에서 입력한 Umap 차원축소기 파일명에 따라 경로가 자동 주입됨. None인 경우 umap 훈련 혹은 umap을 사용하지 않는다.
         :param data_type:
         :param data_dim:
         """
@@ -54,14 +57,18 @@ class DataSetter:
                     return list(enum_class)[0] # 첫번째 항목을 기본값으로 사용
             return value
 
+        def save_gm_dataset(train_ds, val_ds, test_ds):
+            def save_ds(ds: tf.data.Dataset, path: Union[Path, str]):
+                tf.data.Dataset.save(ds, str(path))
+
+            save_ds(train_ds, train_path)
+            save_ds(val_ds, val_path)
+            save_ds(test_ds, test_path)
+
         # x: (original_len, dim) -> (target_len, dim)
         def truncate_sequence(max_len):
             # x shape: (original_max_len, UMAP_OUTPUT_DIM)
             return lambda x, y: (x[:max_len, :], y) # 직렬화 문제로 인해 return x[:self.max_seq_len, :], y 대신
-
-        # 최종 배치 처리
-        def _batch_finalize(ds: tf.data.Dataset, target_batch_size: int=BATCH_SIZE) -> tf.data.Dataset:
-            return ds.cache().batch(target_batch_size).prefetch(tf.data.AUTOTUNE) # cache 설정으로 메모리에 올려 속도 극대화
 
         def seq_and_batch_finalize(path_or_ds: Union[Path, tf.data.Dataset]) -> tf.data.Dataset:
             # 입력이 경로면 로드하고, 데이터셋 객체면 그대로 사용
@@ -70,17 +77,22 @@ class DataSetter:
             else:
                 ds = path_or_ds
 
+            # 최종 배치 처리
+            def batch_finalize(ds: tf.data.Dataset, target_batch_size: int=BATCH_SIZE) -> tf.data.Dataset:
+                return ds.cache().batch(target_batch_size).prefetch(tf.data.AUTOTUNE) # cache 설정으로 메모리에 올려 속도 극대화
+
             # 기본 길이(MAX_LEN)가 아닌 경우: 시퀀스 자르기
             if self.max_seq_len < MAX_LEN:
                 ds = ds.map(truncate_sequence(self.max_seq_len), num_parallel_calls=tf.data.AUTOTUNE)
-            return _batch_finalize(ds=ds, target_batch_size=self.batch_size)
+            return batch_finalize(ds=ds, target_batch_size=self.batch_size)
 
         data_type = to_enum(DataType, data_type)
         data_dim = to_enum(DataDim, data_dim)
+        self.trainer = to_enum(Trainer, trainer)
 
         # 경로 설정
-        umap_use = Path(umap_path).stem if umap_path else "none" # None 설정이 default가 되도록 바꿀 것. & TO-DO. umap 선택 가능하도록
-        data_dir = f"uu={umap_use}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}"
+        umap_name = Path(umap_path).stem if umap_path else "None" # None 설정이 default가 되도록 바꿀 것. & TO-DO. umap 선택 가능하도록
+        data_dir = f"{self.trainer}-un={umap_name}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}" if self.trainer is Trainer.GM else f"{self.trainer}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}"
         dir_path = Path(L_PREPROCESSED_DATA) / data_dir
 
         print(f"[*] 초기화 완료: {data_type.name} / {data_dim.name}") # TO-DO: dim에 맞게 create_dataset에서 가져오도록.
@@ -89,15 +101,34 @@ class DataSetter:
         val_path = dir_path / "val_ds"
         test_path = dir_path / "test_ds"
 
-        def get_or_create_datasets_from_path() -> Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset]:
+        loader_args = {"data_path": LOAD_DATA}
+        if umap_path is not None: # gm train
+            loader_args.update({
+                "umap_path": UMAP_LOAD_PATH,
+                "dim_reduction": dim_reduction
+            })
+        self.loader = TrainDataLoader(**loader_args) # 딕셔너리 언패킹
+
+        def get_or_create_datasets_from_path() -> Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
             if train_path.exists() and (train_path / "dataset_spec.pb").exists():
                 try:
                     print(f"[*] 기존 데이터셋을 {data_dir}에서 로드 중;")
-                    return (
-                        seq_and_batch_finalize(train_path),
-                        seq_and_batch_finalize(val_path),
-                        seq_and_batch_finalize(test_path)
-                    )
+                    if self.trainer is Trainer.GM:
+                        return (
+                            seq_and_batch_finalize(train_path),
+                            seq_and_batch_finalize(val_path),
+                            seq_and_batch_finalize(test_path)
+                        )
+                    else:
+                        train_file = train_path.with_suffix('.npy')
+                        val_file = val_path.with_suffix('.npy')
+                        test_file = test_path.with_suffix('.npy')
+
+                        return (
+                            np.load(train_file),
+                            np.load(val_file),
+                            np.load(test_file),
+                        )
                 except Exception as e:
                     print(f"[!] 로드 실패: {e}. 불완전한 데이터셋을 삭제합니다.")
                     import shutil
@@ -105,27 +136,38 @@ class DataSetter:
             try:
                 print("[!] 데이터셋 생성을 시작합니다.")
                 os.makedirs(dir_path, exist_ok=True) # 하위 폴더가 생성되지 않은 경우일 수 있음.
-                # [생성] 원본 MAX_LEN과 지정된 batch_size로 생성됨
-                loader = TrainDataLoader(
-                    data_path=LOAD_DATA, dim_reduction=dim_reduction
-                )
-                train_ds, val_ds = loader.create_gm_train_dataset()
-                test_ds = loader.create_test_dataset()
 
-                # [저장] MAX_LEN, unbatch 상태인 raw dataset 그대로 저장하여 범용성 확보
-                def save_ds(ds: tf.data.Dataset, path: Union[Path, str]):
-                    tf.data.Dataset.save(ds, str(path))
+                if self.trainer is Trainer.GM:
+                    # [생성] 원본 MAX_LEN과 지정된 batch_size로 생성됨
+                    train_ds, val_ds = self.loader.create_gm_train_dataset()
+                    test_ds = self.loader.create_test_dataset()
 
-                save_ds(train_ds, train_path)
-                save_ds(val_ds, val_path)
-                save_ds(test_ds, test_path)
+                    # [저장] MAX_LEN, unbatch 상태인 raw dataset 그대로 저장하여 범용성 확보
+                    save_gm_dataset(train_ds, val_ds, test_ds)
 
-                # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
-                return (
-                    seq_and_batch_finalize(train_ds),
-                    seq_and_batch_finalize(val_ds),
-                    seq_and_batch_finalize(test_ds)
-                )
+                    # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
+                    return (
+                        seq_and_batch_finalize(train_ds),
+                        seq_and_batch_finalize(val_ds),
+                        seq_and_batch_finalize(test_ds)
+                    )
+                else:
+                    # [생성] 키포인트 단위이므로 MAX_LEN, batch_size 영향을 받지 않는다
+                    train_ds, val_ds = self.loader.create_umap_train_dataset()
+                    test_ds = self.loader.create_umap_test_dataset()
+
+                    # [저장] np 파일로 저장
+                    train_file = train_path.with_suffix('.npy')
+                    val_file = val_path.with_suffix('.npy')
+                    test_file = test_path.with_suffix('.npy')
+
+                    np.save(train_file, train_ds)
+                    np.save(val_file, val_ds)
+                    np.save(test_file, test_ds)
+
+                    # [리턴]
+                    return train_ds, val_ds, test_ds
+
             except Exception as e:
                 print(f"[!] 생성 도중 에러 발생: {e}. 생성 중인 폴더를 삭제합니다.")
                 import shutil
@@ -135,15 +177,17 @@ class DataSetter:
 
         self.final_datasets = get_or_create_datasets_from_path() # train, val, test
 
-    def get_datasets(self) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
+    def get_datasets(self) -> Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         return self.final_datasets
 
 class TrainDataLoader:
-    def __init__(self, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=UMAP_LOAD_PATH, samples_per_class=1000, dim_reduction=False):
+    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=None, umap_data_num=3000, test_umap_data_num=1000, dim_reduction=False):
         self.data_path = data_path
         self.test_data_path = test_data_path
         self.umap_path = umap_path
-        self.samples_per_class = samples_per_class # 1000이 적절한지
+        self.umap_data_num = umap_data_num
+        self.test_umap_data_num = test_umap_data_num
+        self.trainer = trainer
         self.dim_reduction = dim_reduction
         self.label_map = {name: i for i, name in enumerate(KSL_SENTENCES.keys())}
         if self.dim_reduction:
@@ -162,6 +206,7 @@ class TrainDataLoader:
             print("UMAP encoder model loaded successfully.")
 
         self.videos = []
+        self.umap_keypoints_list = []
 
     def _base_generator(self, path=None) -> tf.data.Dataset:
         self.max_len = MAX_LEN
@@ -197,31 +242,31 @@ class TrainDataLoader:
 
         return test_dataset
 
+    def create_umap_test_dataset(self) -> np.ndarray:
+        self._get_all_filepaths(path=self.test_data_path, umap_data_num=self.test_umap_data_num)
+        test_ds = np.array(self.umap_keypoints_list)
+
+        print(f"유맵 테스트 데이터셋 크기 (예상): {len(test_ds)}")
+        # 데이터 비우기
+        self.umap_keypoints_list = None
+        return test_ds
+
     def create_umap_train_dataset(self) -> Tuple[np.ndarray, np.ndarray]:
-        files_by_class = self._get_all_filepaths()
-        sampled_files = self._stratified_sample_files(files_by_class=files_by_class)
+        self._get_all_filepaths()
+        print(f"Loading and processing umap data from {self.data_path}...")
 
-        dataset = tf.data.Dataset.from_tensor_slices(sampled_files)
-        print(f"Loading and processing data from {self.data_path}...")
-        dataset = dataset.map(
-            lambda path: tf.py_function(
-                self._load_json_from_path, inp=[path], Tout=tf.float32
-            ), num_parallel_calls=tf.data.AUTOTUNE)
+        umap_list_len = len(self.umap_keypoints_list)
+        val_size = max(1, int(umap_list_len*VALIDATION_SPLIT))
+        if val_size >= umap_list_len:
+            raise ValueError(f"Not enough samples: {len(self.umap_keypoints_list)}. Need at least 2.")
 
-        dataset = dataset.map(lambda x: tf.reshape(x, [-1]))
+        train_ds = np.array(self.umap_keypoints_list[:-val_size])
+        val_ds = np.array(self.umap_keypoints_list[-val_size:])
 
-        numpy_dataset = np.array([item.numpy() for item in tqdm(dataset, total=len(sampled_files), desc="Processing Dataset")])
-
-        validation_size = max(1, int(len(numpy_dataset) * VALIDATION_SPLIT)) # 최소 1개
-
-        if validation_size >= len(numpy_dataset):
-            raise ValueError(f"Not enough samples: {len(numpy_dataset)}. Need at least 2.")
-
-        train_dataset = numpy_dataset[:-validation_size]
-        validation_dataset = numpy_dataset[-validation_size:]
-
-        print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
-        return train_dataset, validation_dataset
+        print(f"유맵 훈련 데이터셋 크기 (예상): {len(train_ds)}\n 유맵 검증 데이터셋 크기 (예상): {len(val_ds)}")
+        # 데이터 비우기
+        self.umap_keypoints_list = None
+        return train_ds, val_ds
 
     def create_gm_train_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
         full_dataset = self._base_generator() # path는 기본 self.data_path
@@ -237,13 +282,16 @@ class TrainDataLoader:
 
         print("\nTrain Dataset Spec:\n", train_dataset)
         print("\nValidation Dataset Spec:\n", val_dataset)
+        # 데이터 비우기
+        self.videos = None
 
         return train_dataset, val_dataset
 
-    def _get_all_filepaths(self, path=None) -> dict:
+    # 훈련 data 혹은 test data를 가져옴.
+    # dim_reduction에 따라 데이터 차원축소를 하거나 하지 않음.
+    def _get_all_filepaths(self, umap_data_num: int=None, path=None):
         path = self.data_path if path is None else path
         print(f"\nStarting data loading from: {path}")
-        files_by_class = defaultdict(list)
 
         is_s3 = path.startswith('s3://')
         is_gcs = path.startswith('gs://')
@@ -261,9 +309,11 @@ class TrainDataLoader:
             self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
 
         self.videos = []
+        keypoints_list = []
+
+        umap_data_num = umap_data_num if umap_data_num is not None else self.umap_data_num
         with tqdm(KSL_SENTENCES.items(), desc="[Total Progress]", position=0) as pbar_sentences:
             for folder_name, folder_meaning in pbar_sentences:
-                class_label = folder_meaning
                 pbar_sentences.set_postfix(current_class=folder_name)
                 for direction in DIRECTIONS:
                     if is_s3:
@@ -275,7 +325,7 @@ class TrainDataLoader:
                     else:
                         direction_dir = os.path.join(path, folder_name, f"{folder_name}_{direction}")
                         if not os.path.exists(direction_dir): continue
-                        person_paths = glob.glob(os.path.join(direction_dir, f"*REAL*_{direction}"))
+                        person_paths = glob.glob(os.path.join(str(direction_dir), f"*REAL*_{direction}"))
                     tqdm.write(f"Searching in : {direction_dir}")
 
                     for person_path in tqdm(person_paths, desc=f"Loading {folder_name}_{direction}",
@@ -288,8 +338,6 @@ class TrainDataLoader:
                             if not os.path.isdir(person_path): continue
                             keypoint_files = sorted(glob.glob(os.path.join(person_path,"*_keypoints.json")))
 
-                        files_by_class[class_label].extend(keypoint_files)
-
                         keypoints_batch = []
                         for kp_file in tqdm(keypoint_files, desc="      Processing Frames", position=2, leave=False,
                                             disable=len(keypoint_files)<10):
@@ -297,12 +345,20 @@ class TrainDataLoader:
                                 file_path_tensor = tf.constant(kp_file)
                                 keypoints = self._load_json_from_path(file_path_tensor)
                                 keypoints = keypoints.reshape(-1) # (98, )
+
+                                # UMAP인 경우 모든 프레임 개별 저장
+                                if self.trainer is Trainer.UMAP:
+                                    keypoints_list.append(keypoints)
+                                # GM인 경우 배치에 저장
                                 keypoints_batch.append(keypoints)
+
                             except Exception as e:
                                 tqdm.write(f"file load error: {kp_file} - {e}")
                                 continue
 
-                        if len(keypoints_batch) > 0:
+                        if len(keypoints_batch) == 0: continue
+
+                        if self.trainer is Trainer.GM:
                             keypoints_batch = np.array(keypoints_batch)                 # (T, 98)
                             if self.dim_reduction:
                                 keypoints_batch = self.umap_encoder.predict(keypoints_batch) # (T, 32)
@@ -310,17 +366,22 @@ class TrainDataLoader:
                                 'sequence': keypoints_batch,
                                 'class_label': self.label_map[folder_name]
                             })
+        if self.trainer is Trainer.UMAP:
+            print(f"[*] UMAP용 키포인트 변환 중... {len(keypoints_list)} 프레임 중 {umap_data_num}개 뽑기")
+            random_keypoints_list = random.sample(keypoints_list, umap_data_num)
+            self.umap_keypoints_list = np.array(random_keypoints_list, dtype=np.float32)
+            del random_keypoints_list, keypoints_list
 
-        return files_by_class
-
-    def _stratified_sample_files(self, files_by_class: dict) -> list:
+    # 과거 umap 데이터 구성에 사용
+    # 개별 키포인트 파일 경로의 묶음을 리턴함
+    def _stratified_sample_files(self, files_by_class: dict, samples_per_class: int=1000) -> list:
         sampled_files = []
         print("\n--- Stratified Sampling ---")
         for class_label, file_list in files_by_class.items():
             num_files = len(file_list)
-            num_to_sample = min(self.samples_per_class, num_files)
+            num_to_sample = min(samples_per_class, num_files)
             print(f"Class: '{class_label}': Found {num_files}")
-            sampled_files.extend(random.sample(file_list, num_to_sample))
+            sampled_files.extend(random.sample(file_list, num_to_sample)) # keypoint 파일들 중 일부 선택
         print("---------------------------\n")
 
         random.shuffle(sampled_files)

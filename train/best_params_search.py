@@ -18,7 +18,7 @@ from load_data.create_dataset import DataSetter
 from src.backbone import get_model
 from src.config import OPTUNA_TRIALS_PATH, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
     BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM, \
-    L_TOOLS, VALIDATION_SPLIT, MAX_LEN
+    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, UMAP_LOAD_PATH
 
 
 def objective(trial):
@@ -31,8 +31,10 @@ def objective(trial):
 
     # 2. 데이터 불러오기
     train_dataset, val_dataset, _ = DataSetter(
+        umap_path=UMAP_LOAD_PATH,
         max_seq_len=sequence_length,
-        batch_size=batch_size
+        batch_size=batch_size,
+        dim_reduction=True
     ).get_datasets()
     # 2-1. 학습 데이터 줄이기
     num_train = int(80*NUM_CLASSES*(1-VALIDATION_SPLIT) * subset_ratio)

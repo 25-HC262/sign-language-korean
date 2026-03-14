@@ -170,7 +170,8 @@ class DataDimensionReducer:
 
             batch_size=1024,
             verbose=True,
-            keras_fit_kwargs={'callbacks': callbacks}
+            keras_fit_kwargs={'callbacks': callbacks},
+            device='cuda:0' # specific CUDA gpu
         )
         epochs //= 10    # 모델은 총 에폭수 = n_training_epochs*loss_report_frequency(10) 로 계산하므로
         self.embedder.n_training_epochs = epochs
