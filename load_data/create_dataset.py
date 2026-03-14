@@ -34,7 +34,8 @@ class DataSetter:
     def __init__(self, umap_path: str=UMAP_LOAD_PATH, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
                  data_type: DataType=DataType.GLOSS, data_dim: DataDim=DataDim._2D,
                  max_seq_len: int=MAX_LEN,
-                 batch_size: int=BATCH_SIZE):
+                 batch_size: int=BATCH_SIZE,
+                 dim_reduction: bool=True):
         """
         :param umap_path: Umap Version. 사용자 옵션`--umap`에서 입력한 Umap 차원축소기 파일명에 따라 경로가 자동 주입됨.
         :param data_type:
@@ -106,7 +107,7 @@ class DataSetter:
                 os.makedirs(dir_path, exist_ok=True) # 하위 폴더가 생성되지 않은 경우일 수 있음.
                 # [생성] 원본 MAX_LEN과 지정된 batch_size로 생성됨
                 loader = TrainDataLoader(
-                    data_path=LOAD_DATA, dim_reduction=True
+                    data_path=LOAD_DATA, dim_reduction=dim_reduction
                 )
                 train_ds, val_ds = loader.create_gm_train_dataset()
                 test_ds = loader.create_test_dataset()

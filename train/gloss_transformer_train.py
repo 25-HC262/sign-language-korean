@@ -68,7 +68,8 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     print("\nLoading training data...")
     train_dataset, val_dataset, test_dataset = DataSetter(
         max_seq_len=max_sequence_len,
-        batch_size=batch_size
+        batch_size=batch_size,
+        dim_reduction=True
     ).get_datasets()
 
     # 1. 모델 생성
