@@ -8,13 +8,12 @@ from urllib.parse import urlparse
 import boto3
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
-    BATCH_SIZE, UMAP_LOAD_PATH, TEST_SPLIT, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
-    L_PREPROCESSED_DATA, MAX_LEN, L_DATA
+    BATCH_SIZE, UMAP_LOAD_PATH, TEST_RATE, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
+    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
 from typing import Dict, Any, Tuple
-from collections import defaultdict
 import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
@@ -30,16 +29,26 @@ class DataDim(Enum):
     _2D = "2d"
     _3D = "3d"
 
+class Trainer(Enum):
+    GM = "gm"
+    UMAP = "umap"
+
 class DataSetter:
-    def __init__(self, umap_path: str=UMAP_LOAD_PATH, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
-                 data_type: DataType=DataType.GLOSS, data_dim: DataDim=DataDim._2D,
+    def __init__(self, umap_path: str=None, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
+                 data_type: DataType=DataType.GLOSS, data_dim: DataDim=DataDim._2D, trainer: Trainer=Trainer.GM,
                  max_seq_len: int=MAX_LEN,
-                 batch_size: int=BATCH_SIZE):
+                 batch_size: int=BATCH_SIZE,
+                 dim_reduction: bool=False,
+                 umap_data_num=UMAP_DATA_NUM,
+                 test_umap_data_num=TEST_UMAP_DATA_NUM):
         """
-        :param umap_path: Umap Version. 사용자 옵션`--umap`에서 입력한 Umap 차원축소기 파일명에 따라 경로가 자동 주입됨.
+        :param umap_path: Umap Version. 사용자 옵션`--umap`에서 입력한 Umap 차원축소기 파일명에 따라 경로가 자동 주입됨. None인 경우 umap 훈련 혹은 umap을 사용하지 않는다.
         :param data_type:
         :param data_dim:
         """
+        self.max_seq_len = max_seq_len
+        self.batch_size = batch_size
+
         # 입력이 문자열이면 Enum으로 변환, 아니면 그대로 유지
         def to_enum(enum_class: Type[Enum], value: Union[str, Enum]) -> Enum:
             if isinstance(value, str):
@@ -51,158 +60,166 @@ class DataSetter:
             return value
 
         # x: (original_len, dim) -> (target_len, dim)
-        def truncate_sequence():
-            def _truncate(x,y):
-                # x shape: (original_max_len, UMAP_OUTPUT_DIM)
-                return x[:self.max_seq_len, :],y
-            return _truncate
+        def truncate_sequence(max_len):
+            # x shape: (original_max_len, UMAP_OUTPUT_DIM)
+            return lambda x, y: (x[:max_len, :], y) # 직렬화 문제로 인해 return x[:self.max_seq_len, :], y 대신
 
-        def load_and_prep(path: Path) -> tf.data.Dataset:
-            ds = tf.data.Dataset.load(str(path))
-            # 1. 시퀀스 자르기 (길이가 다를 경우만 실행)
+        def seq_and_batch_finalize(path_or_ds: Union[Path, tf.data.Dataset]) -> tf.data.Dataset:
+            # 입력이 경로면 로드하고, 데이터셋 객체면 그대로 사용
+            if isinstance(path_or_ds, (Path, str)):
+                ds = tf.data.Dataset.load(str(path_or_ds))
+            else:
+                ds = path_or_ds
+
+            # 최종 배치 처리
+            def batch_finalize(ds: tf.data.Dataset, target_batch_size: int=BATCH_SIZE) -> tf.data.Dataset:
+                return ds.cache().batch(target_batch_size).prefetch(tf.data.AUTOTUNE) # cache 설정으로 메모리에 올려 속도 극대화
+
+            # 기본 길이(MAX_LEN)가 아닌 경우: 시퀀스 자르기
             if self.max_seq_len < MAX_LEN:
-                return ds.map(truncate_sequence(), num_parallel_calls=tf.data.AUTOTUNE) \
-                    .batch(batch_size) \
-                    .prefetch(tf.data.AUTOTUNE)
-            # 2. 공통 처리: 배치 및 프리페치
-            return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+                ds = ds.map(truncate_sequence(self.max_seq_len), num_parallel_calls=tf.data.AUTOTUNE)
+            return batch_finalize(ds=ds, target_batch_size=self.batch_size)
 
         data_type = to_enum(DataType, data_type)
         data_dim = to_enum(DataDim, data_dim)
-        self.max_seq_len = max_seq_len
+        self.trainer = to_enum(Trainer, trainer)
 
         # 경로 설정
-        umap_use = Path(umap_path).stem if umap_path else "none" # None 설정이 default가 되도록 바꿀 것. & TO-DO. umap 선택 가능하도록
-        self.data_dir = f"uu={umap_use}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}"
-        self.dir_path = Path(L_PREPROCESSED_DATA) / self.data_dir
+        umap_name = Path(umap_path).stem if umap_path else "None" # None 설정이 default가 되도록 바꿀 것. & TO-DO. umap 선택 가능하도록
+        data_dir = f"{self.trainer}-un={umap_name}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}" if self.trainer is Trainer.GM else f"{self.trainer}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}"
+        dir_path = Path(L_PREPROCESSED_DATA) / data_dir
 
         print(f"[*] 초기화 완료: {data_type.name} / {data_dim.name}") # TO-DO: dim에 맞게 create_dataset에서 가져오도록.
 
-        train_path = self.dir_path / "train_ds"
-        val_path = self.dir_path / "val_ds"
-        test_path = self.dir_path / "test_ds"
+        train_path = dir_path / "train_ds"
+        val_path = dir_path / "val_ds"
+        test_path = dir_path / "test_ds"
 
-        if train_path.exists() and (train_path / "dataset_spec.pb").exists():
-            print(f"[*] 기존 데이터셋을 {self.data_dir}에서 로드 중;")
-            train_ds = load_and_prep(train_path)
-            val_ds = load_and_prep(val_path)
-            test_ds = load_and_prep(test_path)
-        else:
-            print("[!] 저장된 데이터셋이 없습니다. 새로 생성을 시작합니다.")
-            os.makedirs(self.dir_path) # 없으면 기존 데이터 가져오도록 - 에러 발생
-            # [생성] 원본 MAX_LEN과 지정된 batch_size로 생성됨
-            train_ds, val_ds, test_ds = TrainDataLoader(
-                data_path=L_DATA, max_len=MAX_LEN, is_training_transformer=True
-            ).create_transformer_dataset(batch_size=batch_size)
-            # [저장] unbatch 상태로 저장하여 범용성 확보
-            train_ds.unbatch().save(str(train_path)); val_ds.unbatch().save(str(val_path)); test_ds.unbatch().save(str(test_path))
+        loader_args = {
+            "data_path": LOAD_DATA,
+            "trainer": trainer,
+            "dim_reduction": dim_reduction,
+            "umap_path": umap_path
+        }
+        if trainer is Trainer.UMAP:
+            loader_args.update({
+                "umap_data_num": umap_data_num,
+                "test_umap_data_num": test_umap_data_num
+            })
+        self.loader = TrainDataLoader(**loader_args) # 딕셔너리 언패킹
 
-            # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
-            if self.max_seq_len < MAX_LEN:
-                def prep_new_ds(ds):
-                    return ds.unbatch().map(truncate_sequence(), num_parallel_calls=tf.data.AUTOTUNE) \
-                        .batch(batch_size).prefetch(tf.data.AUTOTUNE)
-                train_ds = prep_new_ds(train_ds)
-                val_ds = prep_new_ds(val_ds)
-                test_ds = prep_new_ds(test_ds)
+        def get_or_create_datasets_from_path() -> Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+            if (train_path / train_path.with_suffix('.npy')).exists() or (train_path / "dataset_spec.pb").exists():
+                try:
+                    print(f"[*] 기존 데이터셋을 {data_dir}에서 로드 중;")
+                    if self.trainer is Trainer.GM:
+                        return (
+                            seq_and_batch_finalize(train_path),
+                            seq_and_batch_finalize(val_path),
+                            seq_and_batch_finalize(test_path)
+                        )
+                    else:
+                        train_file = train_path.with_suffix('.npy')
+                        val_file = val_path.with_suffix('.npy')
+                        test_file = test_path.with_suffix('.npy')
 
-        self.final_datasets = (train_ds, val_ds, test_ds)
+                        return (
+                            np.load(train_file, allow_pickle=True),
+                            np.load(val_file, allow_pickle=True),
+                            np.load(test_file, allow_pickle=True),
+                        )
+                except Exception as e:
+                    print(f"[!] 로드 실패: {e}. 불완전한 데이터셋을 삭제합니다.")
+                    import shutil
+                    shutil.rmtree(dir_path, ignore_errors=True)
+            try:
+                print("[!] 데이터셋 생성을 시작합니다.")
+                os.makedirs(dir_path, exist_ok=True) # 하위 폴더가 생성되지 않은 경우일 수 있음.
 
-    def get_datasets(self) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
+                if self.trainer is Trainer.GM:
+                    # [생성] 원본 MAX_LEN과 지정된 batch_size로 생성됨
+                    train_ds, val_ds = self.loader.create_gm_train_dataset()
+                    test_ds = self.loader.create_test_dataset()
+
+                    # [저장] MAX_LEN, unbatch 상태인 raw dataset 그대로 저장하여 범용성 확보
+                    tf.data.Dataset.save(train_ds, str(train_path))
+                    tf.data.Dataset.save(val_ds, str(val_path))
+                    tf.data.Dataset.save(test_ds, str(test_path))
+
+                    # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
+                    return (
+                        seq_and_batch_finalize(train_ds),
+                        seq_and_batch_finalize(val_ds),
+                        seq_and_batch_finalize(test_ds)
+                    )
+                else:
+                    # [생성] 키포인트 단위이므로 MAX_LEN, batch_size 영향을 받지 않는다
+                    train_ds, val_ds = self.loader.create_umap_train_dataset()
+                    test_ds = self.loader.create_umap_test_dataset()
+
+                    # [저장] np 파일로 저장
+                    train_file = train_path.with_suffix('.npy')
+                    val_file = val_path.with_suffix('.npy')
+                    test_file = test_path.with_suffix('.npy')
+
+                    np.save(train_file, train_ds)
+                    np.save(val_file, val_ds)
+                    np.save(test_file, test_ds)
+
+                    # [리턴]
+                    return train_ds, val_ds, test_ds
+
+            except Exception as e:
+                print(f"[!] 생성 도중 에러 발생: {e}. 생성 중인 폴더를 삭제합니다.")
+                import shutil
+                if dir_path.exists():
+                    shutil.rmtree(dir_path)
+                raise e # 최상위 에러는 알려줌
+
+        self.final_datasets = get_or_create_datasets_from_path() # train, val, test
+
+    def get_datasets(self) -> Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         return self.final_datasets
 
-
 class TrainDataLoader:
-    def __init__(self, data_path, max_len=CROP_LEN, samples_per_class=1000, is_training_transformer=False):
+    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=None, umap_data_num=None, test_umap_data_num=None, dim_reduction=False):
         self.data_path = data_path
-        self.batch_size = BATCH_SIZE
-        self.max_len = max_len
-        # 데이터셋 크기 저장
-        self.train_size = None
-        self.val_size = None
-        self.test_size = None
-        # s3 경로 확인
-        self.is_s3 = data_path.startswith('s3://')
-        self.is_gcs = data_path.startswith('gs://')
-
-        if self.is_s3:
-            parsed_s3_path = urlparse(data_path)
-            self.s3_bucket = parsed_s3_path.netloc
-            self.s3_prefix = parsed_s3_path.path.lstrip('/')
-            self.s3_client = boto3.client('s3')
-        if self.is_gcs:
-            parsed_path = urlparse(data_path)
-            self.gcs_bucket_name = parsed_path.netloc
-            self.gcs_prefix = parsed_path.path.lstrip('/')
-            self.gcs_client = storage.Client()
-            self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
-
-        self.samples_per_class = samples_per_class
-        self.is_training_transformer = is_training_transformer
-        if self.is_training_transformer:
-            # weights_path = "models/umap_models/best_model.weights.h5"
-            # self.umap_encoder = keras.Sequential([
-            #     keras.layers.InputLayer(input_shape=(NUM_NODES*2, )),
-            #     keras.layers.Flatten(),
-            #     keras.layers.Dense(units=128, activation='relu', kernel_regularizer=keras.regularizers.l2(0.001)),
-            #     keras.layers.Dropout(0.2),
-            #
-            #     keras.layers.Dense(units=OUTPUT_DIM, kernel_regularizer=keras.regularizers.l2(0.001))
-            # ])
-            #
-            # # 가중치 로드
-            # self.umap_encoder.load_weights(weights_path)
-
-            print(f"Loading UMAP encoder model from: {UMAP_LOAD_PATH}")
+        self.test_data_path = test_data_path
+        self.umap_path = umap_path
+        self.umap_data_num = umap_data_num
+        self.test_umap_data_num = test_umap_data_num
+        self.trainer = trainer
+        self.dim_reduction = dim_reduction
+        self.label_map = {name: i for i, name in enumerate(KSL_SENTENCES.keys())}
+        if self.dim_reduction:
+            print(f"Loading UMAP encoder model from: {self.umap_path}")
             try:
-                self.umap_encoder = keras.saving.load_model(UMAP_LOAD_PATH) # keras 3 upgrade
+                self.umap_encoder = keras.saving.load_model(self.umap_path) # keras 3 upgrade
 
             except Exception as e:
                 print(f"Error loading encoder model: {e}")
                 # 커스텀 객체 사용
                 self.umap_encoder = keras.saving.load_model(
-                    UMAP_LOAD_PATH,
+                    self.umap_path,
                     custom_objects={'InputLayer': keras.layers.InputLayer},
                     compile=False
                 )
             print("UMAP encoder model loaded successfully.")
 
         self.videos = []
+        self.umap_keypoints_list = []
 
-    def create_umap_dataset(self) -> Tuple[np.ndarray, np.ndarray]:
-        files_by_class = self._get_all_filepaths()
-        sampled_files = self._stratified_sample_files(files_by_class=files_by_class)
-
-        dataset = tf.data.Dataset.from_tensor_slices(sampled_files)
-        print(f"Loading and processing data from {self.data_path}...")
-        dataset = dataset.map(
-            lambda path: tf.py_function(
-                self._load_json_from_path, inp=[path], Tout=tf.float32
-            ), num_parallel_calls=tf.data.AUTOTUNE)
-
-        dataset = dataset.map(lambda x: tf.reshape(x, [-1]))
-
-        numpy_dataset = np.array([item.numpy() for item in tqdm(dataset, total=len(sampled_files), desc="Processing Dataset")])
-
-        validation_size = max(1, int(len(numpy_dataset) * VALIDATION_SPLIT)) # 최소 1개
-
-        if validation_size >= len(numpy_dataset):
-            raise ValueError(f"Not enough samples: {len(numpy_dataset)}. Need at least 2.")
-
-        train_dataset = numpy_dataset[:-validation_size]
-        validation_dataset = numpy_dataset[-validation_size:]
-
-        print(f"Train samples: {len(train_dataset)}, Validation samples: {len(validation_dataset)}")
-        return train_dataset, validation_dataset
-
-    def create_transformer_dataset(self, batch_size=None, max_len=None) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
-        if max_len is not None:
-            self.max_len = max_len
-
+    def _base_generator(self, path=None) -> tf.data.Dataset:
+        self.max_len = MAX_LEN
         # self.videos 구성
-        self._get_all_filepaths()
+        self._get_all_filepaths(path=path)
+
+        videos_snapshot = list(self.videos)
+        random.seed(42)
+        random.shuffle(videos_snapshot)
+
         def _data_generator():
-            for video in self.videos:
+            for video in videos_snapshot:
                 seq = video['sequence']
                 if len(seq) > self.max_len:
                     seq = seq[:self.max_len]
@@ -217,101 +234,156 @@ class TrainDataLoader:
                 tf.TensorSpec(shape=(), dtype=tf.int32)
             )
         )
-        full_dataset = full_dataset.shuffle(buffer_size=1024, seed=42, reshuffle_each_iteration=False) # 에폭마다 데이터 섞임 방지
+        return full_dataset
+
+    def create_test_dataset(self) -> tf.data.Dataset:
+        test_dataset = self._base_generator(path=self.test_data_path)
+        test_size = int(len(self.videos) * TEST_RATE)
+        print(f"테스트 데이터셋 크기 (예상): {test_size}")
+
+        return test_dataset
+
+    def create_umap_test_dataset(self) -> np.ndarray:
+        if self.test_umap_data_num is None: return np.array([], dtype=np.float32)
+        self._get_all_filepaths(path=self.test_data_path, umap_data_num=self.test_umap_data_num)
+        test_ds = np.array(self.umap_keypoints_list, dtype=np.float32)
+
+        print(f"유맵 테스트 데이터셋 크기 (예상): {len(test_ds)}")
+        # 데이터 비우기
+        self.umap_keypoints_list = None
+        return test_ds
+
+    def create_umap_train_dataset(self) -> Tuple[np.ndarray, np.ndarray]:
+        self._get_all_filepaths(umap_data_num=self.umap_data_num)
+        print(f"Loading and processing umap data from {self.data_path}...")
+
+        umap_list_len = len(self.umap_keypoints_list)
+        val_size = max(1, int(umap_list_len*VALIDATION_SPLIT))
+        if val_size >= umap_list_len:
+            raise ValueError(f"Not enough samples: {len(self.umap_keypoints_list)}. Need at least 2.")
+
+        train_ds = np.array(self.umap_keypoints_list[:-val_size], dtype=np.float32)
+        val_ds = np.array(self.umap_keypoints_list[-val_size:], dtype=np.float32)
+
+        print(f"유맵 훈련 데이터셋 크기 (예상): {len(train_ds)}\n 유맵 검증 데이터셋 크기 (예상): {len(val_ds)}")
+        # 데이터 비우기
+        self.umap_keypoints_list = None
+        return train_ds, val_ds
+
+    def create_gm_train_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
+        full_dataset = self._base_generator() # path는 기본 self.data_path
         dataset_size = len(self.videos)
-        self.test_size = int(dataset_size*TEST_SPLIT)
-        self.val_size = int(dataset_size*(1-TEST_SPLIT)*VALIDATION_SPLIT) # 남은 데이터 1:1-VAL로 분리
-        self.train_size = dataset_size-self.test_size-self.val_size
+        print(f"훈련에 사용되는 전체 데이터셋 크기: {dataset_size}")
+        val_size = int(dataset_size * VALIDATION_SPLIT) # 남은 데이터 1:1-VAL로 분리
+        train_size = dataset_size-val_size
+        print(f"훈련 데이터셋 크기 (예상): {train_size}")
+        print(f"검증 데이터셋 크기 (예상): {val_size}")
 
-        test_dataset = full_dataset.take(self.test_size)
-        val_dataset = full_dataset.skip(self.test_size).take(self.val_size)
-        train_dataset = full_dataset.skip(self.test_size+self.val_size)
+        val_dataset = full_dataset.take(val_size)
+        train_dataset = full_dataset.skip(val_size)
 
-        target_batch_size = batch_size if batch_size is not None else self.batch_size
-
-        def finalize(ds: tf.data.Dataset):
-            return ds.cache().batch(target_batch_size).prefetch(tf.data.AUTOTUNE)
-
-        test_dataset = finalize(test_dataset) # cache 설정으로 메모리에 올려 속도 극대화
-        val_dataset = finalize(val_dataset)
-        train_dataset = finalize(train_dataset) # OoM이 난다면 해당 설정을 제거해야 함.
-
-        print(f"전체 데이터셋 크기: {dataset_size}")
-        print(f"훈련 데이터셋 크기 (예상): {self.train_size}")
-        print(f"검증 데이터셋 크기 (예상): {self.val_size}")
-        print(f"테스트 데이터셋 크기 (예상): {self.test_size}")
         print("\nTrain Dataset Spec:\n", train_dataset)
         print("\nValidation Dataset Spec:\n", val_dataset)
-        print("\nTest Dataset Spec:\n", test_dataset)
+        # 데이터 비우기
+        self.videos = None
 
-        return train_dataset, val_dataset, test_dataset
+        return train_dataset, val_dataset
 
-    def _get_all_filepaths(self) -> dict:
-        print(f"\nStarting data loading from: {self.data_path}")
-        files_by_class = defaultdict(list)
+    # 훈련 data 혹은 test data를 가져옴.
+    # dim_reduction에 따라 데이터 차원축소를 하거나 하지 않음.
+    def _get_all_filepaths(self, umap_data_num: int=None, path=None):
+        path = self.data_path if path is None else path
+        print(f"\nStarting data loading from: {path}")
 
+        is_s3 = path.startswith('s3://')
+        is_gcs = path.startswith('gs://')
+
+        if is_s3:
+            parsed_s3_path = urlparse(path)
+            self.s3_bucket = parsed_s3_path.netloc
+            self.s3_prefix = parsed_s3_path.path.lstrip('/')
+            self.s3_client = boto3.client('s3')
+        if is_gcs:
+            parsed_path = urlparse(path)
+            self.gcs_bucket_name = parsed_path.netloc
+            self.gcs_prefix = parsed_path.path.lstrip('/')
+            self.gcs_client = storage.Client()
+            self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
+
+        self.videos = []
+        keypoints_list = []
+
+        umap_data_num = umap_data_num if umap_data_num is not None else self.umap_data_num
         with tqdm(KSL_SENTENCES.items(), desc="[Total Progress]", position=0) as pbar_sentences:
             for folder_name, folder_meaning in pbar_sentences:
-                class_label = folder_meaning
                 pbar_sentences.set_postfix(current_class=folder_name)
                 for direction in DIRECTIONS:
-                    if self.is_s3:
+                    if is_s3:
                         direction_dir = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
                         person_paths = self._list_s3_subdirs(direction_dir)
-                    elif self.is_gcs:
+                    elif is_gcs:
                         direction_dir = os.path.join(self.gcs_prefix, folder_name, f"{folder_name}_{direction}/")
                         person_paths = self._list_gcs_subdirs(direction_dir)
                     else:
-                        direction_dir = os.path.join(self.data_path, folder_name, f"{folder_name}_{direction}")
+                        direction_dir = os.path.join(path, folder_name, f"{folder_name}_{direction}")
                         if not os.path.exists(direction_dir): continue
-                        person_paths = glob.glob(os.path.join(direction_dir, f"*REAL*_{direction}"))
+                        person_paths = glob.glob(os.path.join(str(direction_dir), f"*REAL*_{direction}"))
                     tqdm.write(f"Searching in : {direction_dir}")
 
                     for person_path in tqdm(person_paths, desc=f"Loading {folder_name}_{direction}",
                                             position=1, leave=False):
-                        if self.is_s3:
+                        if is_s3:
                             keypoint_files = self._get_s3_keypoint_files(person_path)
-                        elif self.is_gcs:
+                        elif is_gcs:
                             keypoint_files = self._get_gcs_keypoint_files(person_path)
                         else:
                             if not os.path.isdir(person_path): continue
                             keypoint_files = sorted(glob.glob(os.path.join(person_path,"*_keypoints.json")))
 
-                        files_by_class[class_label].extend(keypoint_files)
+                        keypoints_batch = []
+                        for kp_file in tqdm(keypoint_files, desc="      Processing Frames", position=2, leave=False,
+                                            disable=len(keypoint_files)<10):
+                            try:
+                                file_path_tensor = tf.constant(kp_file)
+                                keypoints = self._load_json_from_path(file_path_tensor)
+                                keypoints = keypoints.reshape(-1) # (98, )
 
-                        # When training Transformer
-                        if self.is_training_transformer:
-                            keypoints_batch = []
-                            for kp_file in tqdm(keypoint_files, desc="      Processing Frames", position=2, leave=False,
-                                                disable=len(keypoint_files)<10):
-                                try:
-                                    file_path_tensor = tf.constant(kp_file)
-                                    keypoints = self._load_json_from_path(file_path_tensor)
-                                    keypoints = keypoints.reshape(-1) # (98, )
-                                    keypoints_batch.append(keypoints)
-                                except Exception as e:
-                                    tqdm.write(f"file load error: {kp_file} - {e}")
-                                    continue
+                                # UMAP인 경우 모든 프레임 개별 저장
+                                if self.trainer is Trainer.UMAP:
+                                    keypoints_list.append(keypoints)
+                                # GM인 경우 배치에 저장
+                                keypoints_batch.append(keypoints)
 
-                            if len(keypoints_batch) > 0:
-                                keypoints_batch = np.array(keypoints_batch)             # (T, 98)
-                                embeddings = self.umap_encoder.predict(keypoints_batch) # (T, 32)
+                            except Exception as e:
+                                tqdm.write(f"file load error: {kp_file} - {e}")
+                                continue
 
-                                self.videos.append({
-                                    'sequence': embeddings, # 이미 (T, 32) 형태이므로 바로 사용
-                                    'class_label': list(KSL_SENTENCES.keys()).index(folder_name)
-                                })
+                        if len(keypoints_batch) == 0: continue
 
-        return files_by_class
+                        if self.trainer is Trainer.GM:
+                            keypoints_batch = np.array(keypoints_batch)                 # (T, 98)
+                            if self.dim_reduction:
+                                keypoints_batch = self.umap_encoder.predict(keypoints_batch) # (T, 32)
+                            self.videos.append({
+                                'sequence': keypoints_batch,
+                                'class_label': self.label_map[folder_name]
+                            })
+        if self.trainer is Trainer.UMAP:
+            print(f"[*] UMAP용 키포인트 변환 중... {len(keypoints_list)} 프레임 중 {umap_data_num}개 뽑기")
+            random_keypoints_list = random.sample(keypoints_list, umap_data_num)
+            self.umap_keypoints_list = np.array(random_keypoints_list, dtype=np.float32)
+            del random_keypoints_list, keypoints_list
 
-    def _stratified_sample_files(self, files_by_class: dict) -> list:
+    # 과거 umap 데이터 구성에 사용
+    # 개별 키포인트 파일 경로의 묶음을 리턴함
+    def _stratified_sample_files(self, files_by_class: dict, samples_per_class: int=1000) -> list:
         sampled_files = []
         print("\n--- Stratified Sampling ---")
         for class_label, file_list in files_by_class.items():
             num_files = len(file_list)
-            num_to_sample = min(self.samples_per_class, num_files)
+            num_to_sample = min(samples_per_class, num_files)
             print(f"Class: '{class_label}': Found {num_files}")
-            sampled_files.extend(random.sample(file_list, num_to_sample))
+            sampled_files.extend(random.sample(file_list, num_to_sample)) # keypoint 파일들 중 일부 선택
         print("---------------------------\n")
 
         random.shuffle(sampled_files)
@@ -472,10 +544,10 @@ def upload_file(local_root_path: str, upload_path: str, file_name: str = None):
 
 #  --- S3 upload method ---
 def upload_file_to_s3(local_root_path: str, s3_path: str, file_name: str = None):
-    '''
+    """
     - file_name = None인 경우 local_path의 전체 파일 s3 업로드
     - file_name != None인 경우 개별 파일 s3 업로드
-    '''
+    """
     local_root = Path(local_root_path).expanduser()
     parsed_s3_path = urlparse(s3_path)
     save_bucket = parsed_s3_path.netloc
@@ -563,7 +635,7 @@ def mediapipe_to_openpose_keypoints(results, image_width, image_height):
     return np.concatenate([pose, face, left_hand, right_hand], axis=0)
 
 # 인코더 통과한 데이터를 리턴함.
-def main_preprocess_sequence(sequence: np.ndarray, max_len: int) -> np.ndarray:
+def main_preprocess_sequence(sequence: np.ndarray, max_len: int=CROP_LEN, umap_path:str=UMAP_LOAD_PATH) -> np.ndarray:
     sequence = np.array(sequence)
     original_len = len(sequence)
 
@@ -610,7 +682,7 @@ def main_preprocess_sequence(sequence: np.ndarray, max_len: int) -> np.ndarray:
     selected_seq = np.nan_to_num(selected_seq, 0)
 
     # Umap embedding
-    umap_encoder = keras.models.load_model(UMAP_LOAD_PATH)
+    umap_encoder = keras.models.load_model(umap_path)
     embedding = umap_encoder.predict(selected_seq)
 
     return embedding # (T, 32)

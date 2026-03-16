@@ -3,13 +3,28 @@ import datetime
 import json
 import os
 
+# ============= KOREAN SIGN LANGUAGE SENTENCES =============
+# 경로 안정화
+CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(CONFIG_DIR, ".."))
+
+# 라벨링 데이터
+label_map_name = "primary_label_map.json"
+LABEL_MAP_PATH = os.path.join(PROJECT_ROOT, "src", label_map_name)
+if os.path.exists(LABEL_MAP_PATH):
+    with open(LABEL_MAP_PATH, 'r', encoding='utf-8') as f:
+        KSL_SENTENCES = json.load(f)
+else:
+    raise FileNotFoundError(f"라벨 맵 파일을 찾을 수 없습니다: {LABEL_MAP_PATH}")
+DIRECTIONS = ['D', 'F', 'L', 'R', 'U']
+
 # Model parameters
 THRESHOLD = 0.5
-SEQ_LEN = 60
+SEQ_LEN = 60  # 현재 test에서 사용 중. 통일 필요한지 고민할 것.
 ROWS_PER_FRAME = 137 # 제거 필요.
 CROP_LEN = 125
-MAX_LEN = 340 # CROP_LEN # 최대 프레임 길이 (매번 계산할 수 없으므로 수동 계산)
-NUM_CLASSES = 5
+MAX_LEN = 380 # CROP_LEN # 최대 프레임 길이 (매번 계산할 수 없으므로 수동 계산)
+NUM_CLASSES = len(KSL_SENTENCES)
 PAD = 0. #-100.
 
 # Training parameters
@@ -21,9 +36,10 @@ WEIGHT_DECAY = 0.01
 EPOCHS = 300
 EPOCHS_FOR_UMAP = 100
 VALIDATION_SPLIT = 0.2
-TEST_SPLIT = 0.05
-UMAP_OUTPUT_DIM = 32
-OUTPUT_DIM = 98
+TEST_RATE = 1
+UMAP_DATA_NUM = 3000
+TEST_UMAP_DATA_NUM = 1000
+DROPOUT_RATE_FOR_UMAP = 0.2
 
 # ============= POSE KEYPOINTS (0-24) =============
 # OpenPose BODY_25 model keypoints
@@ -164,30 +180,32 @@ POINT_LANDMARKS = (
 assert all(0 <= idx < 137 for idx in POINT_LANDMARKS), "Invalid landmark indices!"
 assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"
 
-NUM_NODES = len(POINT_LANDMARKS)
-DIM = 2 # 현재 2D이므로
-CHANNELS = DIM * NUM_NODES  # x, y for each point
+NUM_NODES = len(POINT_LANDMARKS) # 49
+KEYPOINT_DIM = 2 # 현재 2D이므로
+CHANNELS = KEYPOINT_DIM * NUM_NODES  # x, y for each point
+UMAP_OUTPUT_DIM = 32
+OUTPUT_DIM = CHANNELS
 
 # ==========================================
 # 전역 패스(Path) 변수 설정
 # ==========================================
-"""
-1. 다운로드/업로드 저장소 선택
-    - 다운로드: -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
-        명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
-    - 업로드: -u 혹은 --upload 뒤에 L,S,G 중 하나를 받도록 설정
-        명령어 예시: `python -m model.gloss_transformer -u G` 혹은 `-upload G`
-2. umap 모델 선택
-    --umap 뒤에 모델명
-    명령어 예시: `python -m model.gloss_transformer --umap "umap.keras"`
-3. gloss 모델 선택
-    -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
-    명령어 예시: `python -m model.gloss_transformer -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
-4. gloss 모델 종류 선택
-    --gmt 혹은 --gloss_model_type으로 모델 종류 선택
-    명령어 예시: `python -m model.gloss_transformer --gmt "transformer"` 혹은 `python -m model.gloss_transformer --gloss_model_type "transformer"`
-"""
 def get_config_args():
+    """
+    1. 다운로드/업로드 저장소 선택
+        - 다운로드: -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
+            명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
+        - 업로드: -u 혹은 --upload 뒤에 L,S,G 중 하나를 받도록 설정
+            명령어 예시: `python -m model.gloss_transformer -u G` 혹은 `-upload G`
+    2. umap 모델 선택
+        --umap 뒤에 모델명
+        명령어 예시: `python -m model.gloss_transformer --umap "umap.keras"`
+    3. gloss 모델 선택
+        -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
+        명령어 예시: `python -m model.gloss_transformer -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
+    4. gloss 모델 종류 선택
+        --gmt 혹은 --gloss_model_type으로 모델 종류 선택
+        명령어 예시: `python -m model.gloss_transformer --gmt "transformer"` 혹은 `python -m model.gloss_transformer --gloss_model_type "transformer"`
+    """
     parser = argparse.ArgumentParser()
 
     # 저장소 선택 옵션 - args.storage에 저장
@@ -203,7 +221,8 @@ def get_config_args():
         "-u", "--upload",
         choices=["L", "S", "G"],
         default="L",
-        help="Storage type: L(Local), S(S3), G(GCS)"    )
+        help="Storage type: L(Local), S(S3), G(GCS)"
+    )
 
     # umap 모델 선택 옵션 - args.umap에 저장
     parser.add_argument(
@@ -231,40 +250,38 @@ STORAGE_MODE = args.storage
 UPLOAD_MODE = args.upload
 SELECTED_GM_TYPE = args.gmt
 
-# 경로 안정화
-CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(CONFIG_DIR, ".."))
-
 date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 
 """TO-DO: 기본 버킷명으로 통일"""
+# 테스트 폴더 추가할 것!
 base_map = {
-    "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints"),
-    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints"),
-    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints")
+    "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints", "gs://test-openpose-keypoint"),
+    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints", "s3://test-openpose-keypoints"),
+    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints", "data/test-openpose-keypoints")
 }
 # 새로운 모델 저장
 names = {
     "gm": f"gloss_{SELECTED_GM_TYPE}_{date_idx}",
-    "umap": f"umap_encoder_{date_idx}"
+    "umap": f"umap_encoder_{date_idx}-dim-{UMAP_OUTPUT_DIM}"
 }
 files = {
     "gm_keras": f"{names['gm']}.keras", # .h5보다 .keras가 권장되므로 .keras로 통일할 것.
     "optuna_gm_keras": f"optuna-{names['gm']}.keras",
     "gm_tflite": f"{names['gm']}.tflite",
+    "umap_ckpt": f"{names['umap']}-dim-{UMAP_OUTPUT_DIM}.weights.h5",
     "umap_keras": f"{names['umap']}.keras"
 }
 
 # 로컬 베이스는 항상 필요
-L_DATA, L_UMAP, L_GM, L_CKPT = (os.path.join(PROJECT_ROOT, L_PATH) for L_PATH in base_map['L'])
+L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST = (os.path.join(PROJECT_ROOT, L_PATH) for L_PATH in base_map['L'])
 L_TOOLS = os.path.join(PROJECT_ROOT, "tools")
-for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS]:
+for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS, L_TEST]:
     os.makedirs(path, exist_ok=True)
 L_PREPROCESSED_DATA = os.path.join(PROJECT_ROOT, "data/processed")
 print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 
 # LOAD_BASE: 사용자 선택 모드(UPLOAD_MODE)에서 가져옴
-LOAD_DATA, LOAD_UMAP, LOAD_GM, _ = base_map.get(UPLOAD_MODE, base_map["L"])
+LOAD_DATA, LOAD_UMAP, LOAD_GM, _, LOAD_TEST = base_map.get(UPLOAD_MODE, base_map["L"])
 
 # 최종 경로
 UMAP_LOAD_PATH = f'{LOAD_UMAP}/{args.umap}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
@@ -276,7 +293,7 @@ LOCAL_PATHS = {
     "optuna_gm_ckpt": f"{L_CKPT}/{files['optuna_gm_keras']}",
     "gm_final": f"{L_GM}/{files['gm_keras']}",
     "gm_tflite": f"{L_GM}/{files['gm_tflite']}",
-    "umap_ckpt": f"{L_UMAP}/{files['umap_keras']}",
+    "umap_ckpt": f"{L_CKPT}/{files['umap_ckpt']}",
     "umap_final": f"{L_UMAP}/{files['umap_keras']}"
 }
 
@@ -293,19 +310,11 @@ WANDB_GM_TAGS = [SELECTED_GM_TYPE, f"dim{OUTPUT_DIM}", f"classes{NUM_CLASSES}"]
 WANDB_UMAP_TAGS = ["umap", f"dim{OUTPUT_DIM}"]
 # ============== optuna 설정 ==============
 OPTUNA_TRIALS_PATH = "sqlite:///optuna_trials.db" # 로컬 수정 필요
-SUBSET_RATIO = 0.05
+SUBSET_RATIO = 0.5
 OPTUNA_STUDY_NAME = "transformers_optuna_study"
 OPTUNA_MODEL = "transformer"
 BEST_PARAMS_PATH = f"{L_GM}/best_params-{date_idx}.json"
 N_TRIALS = 20
-
-# ============= KOREAN SIGN LANGUAGE SENTENCES =============
-try:
-    with open('src/primary_label_map.json', 'r', encoding='utf-8') as f:
-        KSL_SENTENCES = json.load(f)
-except FileNotFoundError:
-    print("Warning: 'label_map.json' not found.")
-DIRECTIONS = ['D', 'F', 'L', 'R', 'U']
 
 if __name__ == "__main__":
     print(f"Number of selected keypoints: {NUM_NODES}")

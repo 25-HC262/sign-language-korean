@@ -6,7 +6,7 @@ import keras
 from load_data.create_dataset import DataSetter
 # custom layers
 from src.backbone import get_model
-from src.config import L_GM, UMAP_OUTPUT_DIM, NUM_CLASSES, L_CKPT
+from src.config import L_GM, UMAP_OUTPUT_DIM, NUM_CLASSES, L_CKPT, UMAP_LOAD_PATH
 
 keras.mixed_precision.set_global_policy("mixed_float16")
 
@@ -15,8 +15,10 @@ def evaluating_model_with_weights(
         learning_rate: float, max_seq_len: int, batch_size: int
 ):
     train_ds, val_ds, test_ds = DataSetter(
+        umap_path=UMAP_LOAD_PATH,
         max_seq_len=max_seq_len,
-        batch_size=batch_size
+        batch_size=batch_size,
+        dim_reduction=True
     ).get_datasets()
 
     model = get_model(max_len=max_seq_len, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES)
