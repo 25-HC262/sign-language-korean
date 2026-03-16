@@ -39,8 +39,8 @@ class DataSetter:
                  max_seq_len: int=MAX_LEN,
                  batch_size: int=BATCH_SIZE,
                  dim_reduction: bool=False,
-                 umap_data_num: int=UMAP_DATA_NUM,
-                 test_umap_data_num: int=TEST_UMAP_DATA_NUM):
+                 umap_data_num=UMAP_DATA_NUM,
+                 test_umap_data_num=TEST_UMAP_DATA_NUM):
         """
         :param umap_path: Umap Version. 사용자 옵션`--umap`에서 입력한 Umap 차원축소기 파일명에 따라 경로가 자동 주입됨. None인 경우 umap 훈련 혹은 umap을 사용하지 않는다.
         :param data_type:
@@ -109,7 +109,7 @@ class DataSetter:
         self.loader = TrainDataLoader(**loader_args) # 딕셔너리 언패킹
 
         def get_or_create_datasets_from_path() -> Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-            if train_path.exists() and (train_path / "dataset_spec.pb").exists():
+            if (train_path / train_path.with_suffix('.npy')).exists() or (train_path / "dataset_spec.pb").exists():
                 try:
                     print(f"[*] 기존 데이터셋을 {data_dir}에서 로드 중;")
                     if self.trainer is Trainer.GM:
@@ -124,9 +124,9 @@ class DataSetter:
                         test_file = test_path.with_suffix('.npy')
 
                         return (
-                            np.load(train_file),
-                            np.load(val_file),
-                            np.load(test_file),
+                            np.load(train_file, allow_pickle=True),
+                            np.load(val_file, allow_pickle=True),
+                            np.load(test_file, allow_pickle=True),
                         )
                 except Exception as e:
                     print(f"[!] 로드 실패: {e}. 불완전한 데이터셋을 삭제합니다.")
@@ -244,8 +244,9 @@ class TrainDataLoader:
         return test_dataset
 
     def create_umap_test_dataset(self) -> np.ndarray:
+        if self.test_umap_data_num is None: return np.array([], dtype=np.float32)
         self._get_all_filepaths(path=self.test_data_path, umap_data_num=self.test_umap_data_num)
-        test_ds = np.array(self.umap_keypoints_list)
+        test_ds = np.array(self.umap_keypoints_list, dtype=np.float32)
 
         print(f"유맵 테스트 데이터셋 크기 (예상): {len(test_ds)}")
         # 데이터 비우기
@@ -261,8 +262,8 @@ class TrainDataLoader:
         if val_size >= umap_list_len:
             raise ValueError(f"Not enough samples: {len(self.umap_keypoints_list)}. Need at least 2.")
 
-        train_ds = np.array(self.umap_keypoints_list[:-val_size])
-        val_ds = np.array(self.umap_keypoints_list[-val_size:])
+        train_ds = np.array(self.umap_keypoints_list[:-val_size], dtype=np.float32)
+        val_ds = np.array(self.umap_keypoints_list[-val_size:], dtype=np.float32)
 
         print(f"유맵 훈련 데이터셋 크기 (예상): {len(train_ds)}\n 유맵 검증 데이터셋 크기 (예상): {len(val_ds)}")
         # 데이터 비우기
