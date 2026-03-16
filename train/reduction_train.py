@@ -15,12 +15,12 @@ from load_data.create_dataset import upload_file, DataSetter, Trainer
 from src.config import NUM_NODES, EPOCHS_FOR_UMAP, \
     OUTPUT_DIM, LEARNING_RATE_FOR_UMAP, BATCH_SIZE_FOR_UMAP, \
     WANDB_UMAP_NAME, WANDB_UMAP_PROJECT, WANDB_UMAP_GROUP, WANDB_UMAP_TAGS, \
-    LOAD_UMAP, UMAP_LOAD_PATH, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
-    UMAP_OUTPUT_DIM, DROPOUT_RATE_FOR_UMAP, LOCAL_PATHS
+    LOAD_UMAP, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
+    UMAP_OUTPUT_DIM, DROPOUT_RATE_FOR_UMAP, LOCAL_PATHS, L_UMAP, names
 
 
 class DataDimensionReducer:
-    def __init__(self, save_path: str=LOCAL_PATHS["umap_final"], storage_save_path: str=LOAD_UMAP, checkpoint_path: str=LOCAL_PATHS["umap_ckpt"],
+    def __init__(self, save_path: str=L_UMAP, storage_save_path: str=LOAD_UMAP, checkpoint_path: str=LOCAL_PATHS["umap_ckpt"],
                  umap_output_dim=UMAP_OUTPUT_DIM, data_num=UMAP_DATA_NUM,
                  epochs=EPOCHS_FOR_UMAP, learning_rate=LEARNING_RATE_FOR_UMAP, dropout_rate=DROPOUT_RATE_FOR_UMAP, batch_size=BATCH_SIZE_FOR_UMAP) -> None:
         # 경로
@@ -30,7 +30,6 @@ class DataDimensionReducer:
 
         print("Creating dataset for umap training...")
         self.train_dataset, self.val_dataset, _ = DataSetter(
-            umap_path=UMAP_LOAD_PATH,
             trainer=Trainer.UMAP,
             dim_reduction=False,
             umap_data_num=data_num,
@@ -174,11 +173,15 @@ class DataDimensionReducer:
         self.embedder.fit(self.train_dataset)
 
         # 2. 저장
-        print("Saving embedder model...")
-        self.embedder.save(self.save_path)
+        print(f"Saving embedder model in {self.save_path}...")
+        try:
+            self.embedder.encoder.save(LOCAL_PATHS["umap_final"])
+        except Exception as e:
+            print(f"embedder 정의한 이름으로 저장하는 도중에 에러 발생: {e}")
 
+        # 2-2. Wandb에도 저장
         artifact = wandb.Artifact(
-            name="umap-encoder",
+            name=names["umap"],
             type="model",
             description="Trained ParametricUMAP encoder",
             metadata=dict(wandb.config),
@@ -191,11 +194,11 @@ class DataDimensionReducer:
         embedding = self.embedder.transform(self.train_dataset)
         print(f"Embedding shape: {embedding.shape}")
 
-        # pickle을 통해서 embedding 객체 저장하기
-        embedding_file_path = os.path.join(os.path.dirname(self.save_path), "embedding.pkl")
+        # 2-3. embedding.pkl 객체 저장하기
+        embedding_file_path = os.path.join(self.save_path, "embedding.pkl")
+        print(f"Saving embedding to {embedding_file_path}...")
         with open(embedding_file_path, 'wb') as ef:
             pickle.dump(embedding, ef)
-        print(f"Saved embedding to {embedding_file_path}")
 
         upload_file(local_root_path=self.save_path, upload_path=self.storage_path, file_name=os.path.basename(self.save_path))
         wandb.finish()

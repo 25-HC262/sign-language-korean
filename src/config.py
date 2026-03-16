@@ -262,14 +262,14 @@ base_map = {
 # 새로운 모델 저장
 names = {
     "gm": f"gloss_{SELECTED_GM_TYPE}_{date_idx}",
-    "umap": f"umap_encoder_{date_idx}"
+    "umap": f"umap_encoder_{date_idx}-dim-{UMAP_OUTPUT_DIM}"
 }
 files = {
     "gm_keras": f"{names['gm']}.keras", # .h5보다 .keras가 권장되므로 .keras로 통일할 것.
     "optuna_gm_keras": f"optuna-{names['gm']}.keras",
     "gm_tflite": f"{names['gm']}.tflite",
     "umap_ckpt": f"{names['umap']}-dim-{UMAP_OUTPUT_DIM}.weights.h5",
-    "umap_keras": f"{names['umap']}-dim-{UMAP_OUTPUT_DIM}.keras"
+    "umap_keras": f"{names['umap']}.keras"
 }
 
 # 로컬 베이스는 항상 필요
@@ -293,7 +293,7 @@ LOCAL_PATHS = {
     "optuna_gm_ckpt": f"{L_CKPT}/{files['optuna_gm_keras']}",
     "gm_final": f"{L_GM}/{files['gm_keras']}",
     "gm_tflite": f"{L_GM}/{files['gm_tflite']}",
-    "umap_ckpt": f"{L_UMAP}/{files['umap_ckpt']}",
+    "umap_ckpt": f"{L_CKPT}/{files['umap_ckpt']}",
     "umap_final": f"{L_UMAP}/{files['umap_keras']}"
 }
 
