@@ -9,7 +9,7 @@ import boto3
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
     BATCH_SIZE, UMAP_LOAD_PATH, TEST_RATE, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
-    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA
+    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
@@ -38,7 +38,9 @@ class DataSetter:
                  data_type: DataType=DataType.GLOSS, data_dim: DataDim=DataDim._2D, trainer: Trainer=Trainer.GM,
                  max_seq_len: int=MAX_LEN,
                  batch_size: int=BATCH_SIZE,
-                 dim_reduction: bool=False):
+                 dim_reduction: bool=False,
+                 umap_data_num: int=UMAP_DATA_NUM,
+                 test_umap_data_num: int=TEST_UMAP_DATA_NUM):
         """
         :param umap_path: Umap Version. 사용자 옵션`--umap`에서 입력한 Umap 차원축소기 파일명에 따라 경로가 자동 주입됨. None인 경우 umap 훈련 혹은 umap을 사용하지 않는다.
         :param data_type:
@@ -93,11 +95,16 @@ class DataSetter:
         val_path = dir_path / "val_ds"
         test_path = dir_path / "test_ds"
 
-        loader_args = {"data_path": LOAD_DATA}
-        if umap_path is not None: # gm train
+        loader_args = {
+            "data_path": LOAD_DATA,
+            "trainer": trainer,
+            "dim_reduction": dim_reduction,
+            "umap_path": umap_path
+        }
+        if trainer is Trainer.UMAP:
             loader_args.update({
-                "umap_path": UMAP_LOAD_PATH,
-                "dim_reduction": dim_reduction
+                "umap_data_num": umap_data_num,
+                "test_umap_data_num": test_umap_data_num
             })
         self.loader = TrainDataLoader(**loader_args) # 딕셔너리 언패킹
 
@@ -175,7 +182,7 @@ class DataSetter:
         return self.final_datasets
 
 class TrainDataLoader:
-    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=None, umap_data_num=3000, test_umap_data_num=1000, dim_reduction=False):
+    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=None, umap_data_num=None, test_umap_data_num=None, dim_reduction=False):
         self.data_path = data_path
         self.test_data_path = test_data_path
         self.umap_path = umap_path
@@ -246,7 +253,7 @@ class TrainDataLoader:
         return test_ds
 
     def create_umap_train_dataset(self) -> Tuple[np.ndarray, np.ndarray]:
-        self._get_all_filepaths()
+        self._get_all_filepaths(umap_data_num=self.umap_data_num)
         print(f"Loading and processing umap data from {self.data_path}...")
 
         umap_list_len = len(self.umap_keypoints_list)

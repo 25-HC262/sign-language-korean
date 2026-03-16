@@ -37,8 +37,8 @@ EPOCHS = 300
 EPOCHS_FOR_UMAP = 100
 VALIDATION_SPLIT = 0.2
 TEST_RATE = 1
-UMAP_OUTPUT_DIM = 32
-OUTPUT_DIM = 98
+UMAP_DATA_NUM = 3000
+TEST_UMAP_DATA_NUM = 1000
 
 # ============= POSE KEYPOINTS (0-24) =============
 # OpenPose BODY_25 model keypoints
@@ -179,9 +179,11 @@ POINT_LANDMARKS = (
 assert all(0 <= idx < 137 for idx in POINT_LANDMARKS), "Invalid landmark indices!"
 assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"
 
-NUM_NODES = len(POINT_LANDMARKS)
-DIM = 2 # 현재 2D이므로
-CHANNELS = DIM * NUM_NODES  # x, y for each point
+NUM_NODES = len(POINT_LANDMARKS) # 49
+KEYPOINT_DIM = 2 # 현재 2D이므로
+CHANNELS = KEYPOINT_DIM * NUM_NODES  # x, y for each point
+UMAP_OUTPUT_DIM = 32
+OUTPUT_DIM = CHANNELS
 
 # ==========================================
 # 전역 패스(Path) 변수 설정
