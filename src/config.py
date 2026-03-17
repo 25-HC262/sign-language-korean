@@ -2,9 +2,29 @@ import argparse
 import datetime
 import json
 import os
+from enum import Enum
 from typing import List
 
-from load_data.create_dataset import DataType, Trainer
+# ============= 데이터를 위한 클래스 =============
+
+class DataType(Enum):
+    GLOSS = "gloss"
+    SENTENCE = "sentence"
+
+class DataDim(Enum):
+    _2D = "2d"
+    _3D = "3d"
+    @classmethod
+    def _missing_(cls, value):
+        if value == 2:
+            return cls._2D
+        if value == 3:
+            return cls._3D
+        return super()._missing_(value)
+
+class Trainer(Enum):
+    GM = "gm"
+    UMAP = "umap"
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 # 경로 안정화

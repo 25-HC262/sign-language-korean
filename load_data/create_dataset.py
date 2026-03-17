@@ -10,7 +10,7 @@ import boto3
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
     BATCH_SIZE, UMAP_LOAD_PATH, TEST_RATE, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
     L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
-    KEYPOINT_DIM, DATA_TYPE
+    KEYPOINT_DIM, DATA_TYPE, DataDim, DataType, Trainer
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
@@ -21,25 +21,6 @@ from tqdm import tqdm
 from pathlib import Path
 import json
 from google.cloud import storage
-
-class DataType(Enum):
-    GLOSS = "gloss"
-    SENTENCE = "sentence"
-
-class DataDim(Enum):
-    _2D = "2d"
-    _3D = "3d"
-    @classmethod
-    def _missing_(cls, value):
-        if value == 2:
-            return cls._2D
-        if value == 3:
-            return cls._3D
-        return super()._missing_(value)
-
-class Trainer(Enum):
-    GM = "gm"
-    UMAP = "umap"
 
 class DataSetter:
     def __init__(self, umap_path: str=None, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
