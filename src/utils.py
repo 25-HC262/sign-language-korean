@@ -19,6 +19,7 @@ def tf_nan_std(x, center=None, axis=0, keepdims=False):
     d = x - center
     return tf.math.sqrt(tf_nan_mean(d * d, axis=axis, keepdims=keepdims))
 
+# 현재 모델에서는 사용하고 있지 않다.
 class Preprocess(tf.keras.layers.Layer):
     """
     Preprocessing layer for OpenPose input data.

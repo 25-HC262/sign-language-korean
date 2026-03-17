@@ -137,7 +137,8 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
 
     concrete_input_signature = tf.TensorSpec(
         shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
-        dtype=tf.float32
+        dtype=tf.float32,
+        name='inputs'
     )
     concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
     converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function])
