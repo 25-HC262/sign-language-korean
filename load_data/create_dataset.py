@@ -9,7 +9,8 @@ import boto3
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
     BATCH_SIZE, UMAP_LOAD_PATH, TEST_RATE, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
-    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM
+    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
+    KEYPOINT_DIM, DATA_TYPE
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
@@ -28,6 +29,13 @@ class DataType(Enum):
 class DataDim(Enum):
     _2D = "2d"
     _3D = "3d"
+    @classmethod
+    def _missing_(cls, value):
+        if value == 2:
+            return cls._2D
+        if value == 3:
+            return cls._3D
+        return super()._missing_(value)
 
 class Trainer(Enum):
     GM = "gm"
@@ -35,7 +43,7 @@ class Trainer(Enum):
 
 class DataSetter:
     def __init__(self, umap_path: str=None, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
-                 data_type: DataType=DataType.GLOSS, data_dim: DataDim=DataDim._2D, trainer: Trainer=Trainer.GM,
+                 trainer: Trainer=Trainer.GM,
                  max_seq_len: int=MAX_LEN,
                  batch_size: int=BATCH_SIZE,
                  dim_reduction: bool=False,
@@ -43,17 +51,18 @@ class DataSetter:
                  test_umap_data_num=TEST_UMAP_DATA_NUM):
         """
         :param umap_path: Umap Version. 사용자 옵션`--umap`에서 입력한 Umap 차원축소기 파일명에 따라 경로가 자동 주입됨. None인 경우 umap 훈련 혹은 umap을 사용하지 않는다.
-        :param data_type:
-        :param data_dim:
+        :param trainer:
+        :param max_seq_len:
         """
         self.max_seq_len = max_seq_len
         self.batch_size = batch_size
 
         # 입력이 문자열이면 Enum으로 변환, 아니면 그대로 유지
         def to_enum(enum_class: Type[Enum], value: Union[str, Enum]) -> Enum:
-            if isinstance(value, str):
+            if isinstance(value, (str, int)):
                 try:
-                    return enum_class(value.lower()) # enum_class.value 리턴
+                    lookup_value = value.lower() if isinstance(value, str) else value
+                    return enum_class(lookup_value) # enum_class.value 리턴
                 except ValueError:
                     print(f"[!] Warning: {value}는 {enum_class.__name__}에 없습니다.")
                     return list(enum_class)[0] # 첫번째 항목을 기본값으로 사용
@@ -80,8 +89,8 @@ class DataSetter:
                 ds = ds.map(truncate_sequence(self.max_seq_len), num_parallel_calls=tf.data.AUTOTUNE)
             return batch_finalize(ds=ds, target_batch_size=self.batch_size)
 
-        data_type = to_enum(DataType, data_type)
-        data_dim = to_enum(DataDim, data_dim)
+        data_type = to_enum(DataType, DATA_TYPE)
+        data_dim = to_enum(DataDim, KEYPOINT_DIM)
         self.trainer = to_enum(Trainer, trainer)
 
         # 경로 설정
