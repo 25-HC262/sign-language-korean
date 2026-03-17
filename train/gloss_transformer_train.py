@@ -142,7 +142,11 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     )
     concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
     converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function])
-
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS, # 기본 TFLite 연산
+        tf.lite.OpsSet.SELECT_TF_OPS    # [추가] 부족한 연산을 TF에서 가져오는 'Flex' 기능 활성화
+    ]
+    converter._experimental_lower_tensor_list_ops = False # 텐서 리스트 연산의 자동 낮추기 처리 비활성화
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
 
     try:
