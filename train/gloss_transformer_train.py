@@ -1,31 +1,26 @@
-import os
-os.environ["KERAS_BACKEND"] = "tensorflow"
-import tensorflow as tf
+import importlib
+importlib.import_module("src.config")
+
 from pathlib import Path
+
+import keras
+import tensorflow as tf
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
-import keras
-keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전
 
 # 커스텀
-from src.backbone import get_model, TFLiteModel
-from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
-    NUM_NODES, CHANNELS, VALIDATION_SPLIT, STORAGE_MODE, SELECTED_GM_TYPE, \
-    WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, WANDB_GM_TAGS, \
-    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH
 from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
+from src.backbone import get_model, TFLiteModel
+from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
+    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH, SELECTED_GM_TYPE, CHANNELS, \
+    NUM_NODES, STORAGE_MODE, VALIDATION_SPLIT, WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, \
+    WANDB_GM_TAGS
+
 
 def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
                 max_sequence_len: int=CROP_LEN
                 ):
-    # print(" ============== 받은 하이퍼파라미터 ============== ")
-    # print(f"    > learning_rate: {learning_rate}")
-    # print(f"    > epochs: {epochs}")
-    # print(f"    > batch_size: {batch_size}")
-    # print(f"    > weight_decay: {weight_decay}")
-    # print(f"    > max_sequence_len: {max_sequence_len}")
-
     wandb.init(
         project=WANDB_GM_PROJECT,
         name=WANDB_GM_NAME,
@@ -220,18 +215,7 @@ def get_model_args():
     return args
 
 if __name__ == "__main__":
-    # 1. 사용 가능한 GPU 리스트 출력
-    gpus = tf.config.list_physical_devices('GPU')
-
-    if not gpus:
-        print("WARNING: 지금 GPU가 아니라 CPU를 쓰고 있습니다!")
-    else:
-        # 현재 인식된 GPU 개수와 상세 명칭 출력
-        print(f"GPU 사용 중. 현재 사용 가능한 GPU 개수: {len(gpus)}")
-        for i, gpu in enumerate(gpus):
-            print(f" - GPU [{i}]: {gpu}")
-    # 2. 사용자 옵션 받기
+    # 1. 사용자 옵션 받기
     args = get_model_args()
-
-    # 3. 모델 학습
+    # 2. 모델 학습
     history = train_model(learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl)

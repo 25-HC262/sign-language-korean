@@ -1,26 +1,26 @@
+import importlib
+importlib.import_module("src.config")
 import glob
+import json
 import os
 import random
 from enum import Enum
+from pathlib import Path
+from typing import Dict, Any, Tuple
 from typing import Union, Type
 from urllib.parse import urlparse
 
 import boto3
+import keras
+import numpy as np
+import tensorflow as tf
+from google.cloud import storage
+from tqdm import tqdm
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
     BATCH_SIZE, UMAP_LOAD_PATH, TEST_RATE, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
     L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
     KEYPOINT_DIM, DATA_TYPE, DataDim, DataType, Trainer
-
-os.environ["KERAS_BACKEND"] = "tensorflow"
-import keras
-from typing import Dict, Any, Tuple
-import tensorflow as tf
-import numpy as np
-from tqdm import tqdm
-from pathlib import Path
-import json
-from google.cloud import storage
 
 class DataSetter:
     def __init__(self, umap_path: str=None, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.

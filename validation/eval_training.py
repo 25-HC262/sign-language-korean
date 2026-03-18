@@ -1,3 +1,5 @@
+import importlib
+importlib.import_module("src.config")
 import os
 from pathlib import Path
 
@@ -7,8 +9,6 @@ from load_data.create_dataset import DataSetter
 # custom layers
 from src.backbone import get_model
 from src.config import L_GM, UMAP_OUTPUT_DIM, NUM_CLASSES, L_CKPT, UMAP_LOAD_PATH
-
-keras.mixed_precision.set_global_policy("mixed_float16")
 
 def evaluating_model_with_weights(
         model_path: Path,

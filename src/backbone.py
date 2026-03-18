@@ -1,10 +1,12 @@
 # src/backbone.py
-import os
-os.environ["KERAS_BACKEND"] = "tensorflow"
-from .config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
-import tensorflow as tf
-import keras
+import importlib
+importlib.import_module("src.config")
 import itertools
+
+import keras
+import tensorflow as tf
+
+from src.config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
 
 MBBLOCK_COUNTER = itertools.count(1)
 
