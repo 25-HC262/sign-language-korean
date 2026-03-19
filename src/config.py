@@ -1,7 +1,9 @@
 import argparse
 import datetime
 import json
-import os, warnings
+import os
+import warnings
+
 # 1. 경고 차단
 warnings.filterwarnings("ignore", category=UserWarning)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -55,7 +57,7 @@ CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(CONFIG_DIR, ".."))
 
 # 라벨링 데이터
-label_map_name = "primary_label_map.json"
+label_map_name = "label_map.json"
 LABEL_MAP_PATH = os.path.join(PROJECT_ROOT, "src", label_map_name)
 if os.path.exists(LABEL_MAP_PATH):
     with open(LABEL_MAP_PATH, 'r', encoding='utf-8') as f:
