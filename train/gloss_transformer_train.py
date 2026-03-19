@@ -15,7 +15,7 @@ from src.backbone import get_model, TFLiteModel
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH, SELECTED_GM_TYPE, CHANNELS, \
     NUM_NODES, STORAGE_MODE, VALIDATION_SPLIT, WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, \
-    WANDB_GM_TAGS
+    WANDB_GM_TAGS, get_base_parser
 
 
 def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
@@ -180,7 +180,8 @@ def get_model_args():
     명령어 예시: python -m train.gloss_transformer_train --storage L --lr 0.4 --bs 64 --epochs 120 --wd 0.03 --msl 170
     """
     import argparse
-    parser = argparse.ArgumentParser()
+    base_parser = get_base_parser()
+    parser = argparse.ArgumentParser(parents=[base_parser])
 
     parser.add_argument(
         "--lr", "--learning_rate",
@@ -210,7 +211,7 @@ def get_model_args():
 
     ## config.py에서 umap 모델 선택
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
     print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
     return args
 

@@ -1,6 +1,8 @@
+import importlib
 import os
 import pickle
 
+importlib.import_module("src.config")
 import boto3
 import tensorflow as tf
 from google.cloud import storage
@@ -16,7 +18,7 @@ from src.config import NUM_NODES, EPOCHS_FOR_UMAP, \
     OUTPUT_DIM, LEARNING_RATE_FOR_UMAP, BATCH_SIZE_FOR_UMAP, \
     WANDB_UMAP_NAME, WANDB_UMAP_PROJECT, WANDB_UMAP_GROUP, WANDB_UMAP_TAGS, \
     LOAD_UMAP, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
-    UMAP_OUTPUT_DIM, DROPOUT_RATE_FOR_UMAP, LOCAL_PATHS, L_UMAP, names
+    UMAP_OUTPUT_DIM, DROPOUT_RATE_FOR_UMAP, LOCAL_PATHS, L_UMAP, names, get_base_parser
 
 
 class DataDimensionReducer:
@@ -205,10 +207,11 @@ class DataDimensionReducer:
 
 def get_model_args():
     """
-    명령어 예시: python -m train.reduction_train --storage L --lr 0.4 --bs 64 --epochs 120 --wd 0.03 -n 10000 --tn 3000
+    명령어 예시: python -m train.umap_train --storage L --lr 0.4 --bs 64 --epochs 120 -n 10000 --tn 3000
     """
     import argparse
-    parser = argparse.ArgumentParser()
+    base_parser = get_base_parser()
+    parser = argparse.ArgumentParser(parents=[base_parser])
 
     parser.add_argument(
         "--lr", "--learning_rate",
@@ -236,7 +239,7 @@ def get_model_args():
         default=TEST_UMAP_DATA_NUM
     )
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
     print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
     return args
 

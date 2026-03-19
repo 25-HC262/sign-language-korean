@@ -1,5 +1,5 @@
-import os
-os.environ["KERAS_BACKEND"] = "tensorflow"
+import importlib
+importlib.import_module("src.config")
 import tensorflow as tf
 from pathlib import Path
 import wandb
@@ -12,7 +12,7 @@ from src.cnn_lstm import get_model
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     NUM_NODES, CHANNELS, VALIDATION_SPLIT, STORAGE_MODE, SELECTED_GM_TYPE, \
     WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, WANDB_GM_TAGS, \
-    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH
+    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH, get_base_parser
 from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
 
@@ -208,7 +208,8 @@ def get_model_args():
         python -m train.cnn_lstm_train --lr 0.001 --bs 32 --epochs 200 --cnn 64 --lstm 128
     """
     import argparse
-    parser = argparse.ArgumentParser()
+    base_parser = get_base_parser()
+    parser = argparse.ArgumentParser(parents=[base_parser])
 
     parser.add_argument("--lr", "--learning_rate", type=float, default=LEARNING_RATE)
     parser.add_argument("--bs", "--batch_size",    type=int,   default=BATCH_SIZE)
@@ -219,21 +220,11 @@ def get_model_args():
     parser.add_argument("--lstm", "--lstm_units",  type=int,   default=128)
     parser.add_argument("--dropout",               type=float, default=0.3)
 
-    args, _ = parser.parse_known_args()
-    print(*(f"   > {'[default]' if v == parser.get_default(k) else ''} {k}: {v} selected."
-            for k, v in vars(args).items()), sep='\n')
+    args = parser.parse_args()
+    print(*(f"   > {'[default]' if v == parser.get_default(k) else ''} {k}: {v} selected." for k, v in vars(args).items()), sep='\n')
     return args
 
-
 if __name__ == "__main__":
-    gpus = tf.config.list_physical_devices('GPU')
-    if not gpus:
-        print("WARNING: 지금 GPU가 아니라 CPU를 쓰고 있습니다!")
-    else:
-        print(f"GPU 사용 중. 현재 사용 가능한 GPU 개수: {len(gpus)}")
-        for i, gpu in enumerate(gpus):
-            print(f" - GPU [{i}]: {gpu}")
-
     args = get_model_args()
 
     history = train_model(

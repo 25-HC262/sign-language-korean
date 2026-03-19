@@ -231,7 +231,8 @@ assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"
 # ==========================================
 # 전역 패스(Path) 변수 설정
 # ==========================================
-def get_config_args():
+
+def get_base_parser():
     """
     상위 인자 설정. 반드시 설정해야 하는 인자들 및 공통 인자 설정을 담당한다.
     1. 모델 선택
@@ -247,43 +248,47 @@ def get_config_args():
 
     :return: GM인지 UMAP인지에 대한 구분
     """
-    parent_parser = argparse.ArgumentParser(add_help=False) # 도움말 중복 방지
+    parser = argparse.ArgumentParser(add_help=False) # 도움말 중복 방지
     # 1. 모델 선택
-    parent_parser.add_argument(
+    parser.add_argument(
         "-t", "--trainer",
         choices=[t.value for t in Trainer],
         default="gm",
         help="Training model type: gm or umap"
     )
     # 2-1. 저장소 선택 옵션 - args.storage에 저장
-    parent_parser.add_argument(
+    parser.add_argument(
         "-s", "--storage",
         choices=["L", "S", "G"],
         default="L",
         help="Storage type: L(Local), S(S3), G(GCS)"
     )
     # 2-2. 업로드 선택 옵션 - args.upload에 저장
-    parent_parser.add_argument(
+    parser.add_argument(
         "-u", "--upload",
         choices=["L", "S", "G"],
         default="L",
         help="Storage type: L(Local), S(S3), G(GCS)"
     )
     # 3. keypoint 차원수 선택 옵션 - args.kpt_dim에 저장
-    parent_parser.add_argument(
+    parser.add_argument(
         "-k", "--kpt_dim",
         type=int,
         choices=[2,3],
         default=2,
         help="Keypoint Dimension type: 2 or 3 (meaning 2D or 3D)"
     )
-    args, rest = parent_parser.parse_known_args()
+    return parser
+
+def get_config_args():
+    parser = get_base_parser()
+    args, rest = parser.parse_known_args()
 
     # 선택된 trainer에 따른 세부 인자 설정
     if args.trainer == Trainer.UMAP.value:
-        fin_args = get_umap_args(parent_parser, rest)
+        fin_args = get_umap_args(parser, rest)
     else:
-        fin_args = get_gm_args(parent_parser, rest)
+        fin_args = get_gm_args(parser, rest)
     return fin_args
 
 def get_umap_args(parent: argparse.ArgumentParser, rest: List[str]):
@@ -302,7 +307,6 @@ def get_umap_args(parent: argparse.ArgumentParser, rest: List[str]):
         help="Reducing dimension using Umap: default 32"
     )
     args, _ = parser.parse_known_args(rest)
-    print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
     return args
 
 def get_gm_args(parent: argparse.ArgumentParser, rest: List[str]):
@@ -331,7 +335,6 @@ def get_gm_args(parent: argparse.ArgumentParser, rest: List[str]):
         default="transformer"
     )
     args, _ = parser.parse_known_args(rest)
-    print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
     return args
 
 args = get_config_args()

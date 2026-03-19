@@ -1,3 +1,4 @@
+import argparse
 import importlib
 importlib.import_module("src.config")
 
@@ -6,7 +7,6 @@ import keras.optimizers
 import matplotlib
 import matplotlib.pyplot as plt
 import optuna
-import tensorflow as tf
 from optuna.storages import RDBStorage
 from optuna.visualization.matplotlib import (
     plot_optimization_history,
@@ -16,7 +16,7 @@ from optuna.visualization.matplotlib import (
 
 from src.config import OPTUNA_TRIALS_PATH, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
     BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM, \
-    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, UMAP_LOAD_PATH
+    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, UMAP_LOAD_PATH, get_base_parser
 
 matplotlib.use('Agg') # GUI 없이 파일 저장만 가능하게 하는 백엔드
 
@@ -95,24 +95,13 @@ def objective(trial):
     return eval_result['accuracy']
 
 if __name__=="__main__":
-    # 1. 사용 가능한 GPU 리스트 출력
-    gpus = tf.config.list_physical_devices('GPU')
-
-    if not gpus:
-        print("WARNING: 지금 GPU가 아니라 CPU를 쓰고 있습니다!")
-    else:
-        # 현재 인식된 GPU 개수와 상세 명칭 출력
-        print(f"GPU 사용 중. 현재 사용 가능한 GPU 개수: {len(gpus)}")
-        for i, gpu in enumerate(gpus):
-            print(f" - GPU [{i}]: {gpu}")
-
     """
     TO-DO
     transformer에서 다른 모델들로 확장
     """
     def get_optuna_config():
-        import argparse
-        parser = argparse.ArgumentParser()
+        base_parser = get_base_parser()
+        parser = argparse.ArgumentParser(parents=[base_parser])
         parser.add_argument(
             "-m", "--model",
             default=OPTUNA_MODEL
@@ -133,7 +122,7 @@ if __name__=="__main__":
             type=int,
             default=N_TRIALS
         )
-        args, _ = parser.parse_known_args()
+        args = parser.parse_args()
         print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
         return args
     args = get_optuna_config()
