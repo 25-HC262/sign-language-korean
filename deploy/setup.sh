@@ -1,18 +1,13 @@
 #!/bin/bash
 # Ubuntu 24.04 LTS GCE VM 최초 1회 설정 스크립트 (Docker 기반)
-# 사용법: sudo bash setup.sh <도메인>
-# 예시:   sudo bash setup.sh model.example.com
+# 사용법: sudo bash setup.sh [도메인]
+# 예시:   sudo bash setup.sh model.example.com   # HTTPS (권장)
+#         sudo bash setup.sh                      # HTTP only (IP 직접 접속, 테스트용)
 set -euo pipefail
 
 DOMAIN="${1:-}"
 APP_DIR="/opt/sign-language-korean"
 SERVICE_USER="ubuntu"
-
-if [ -z "$DOMAIN" ]; then
-    echo "사용법: sudo bash setup.sh <도메인>"
-    echo "예시:   sudo bash setup.sh model.example.com"
-    exit 1
-fi
 
 echo "==> [1/6] 시스템 패키지 설치"
 apt-get update
@@ -48,8 +43,53 @@ cp "$(dirname "$0")/redeploy.sh" "$APP_DIR/deploy/"
 chmod +x "$APP_DIR/deploy/redeploy.sh"
 
 echo "==> [5/6] Nginx 설정"
-cp "$(dirname "$0")/nginx-model.conf" /etc/nginx/sites-available/sign-language-model
-sed -i "s/YOUR_DOMAIN/$DOMAIN/g" /etc/nginx/sites-available/sign-language-model
+if [ -n "$DOMAIN" ]; then
+    # 도메인 있음: nginx-model.conf 사용 (HTTPS, Certbot)
+    cp "$(dirname "$0")/nginx-model.conf" /etc/nginx/sites-available/sign-language-model
+    sed -i "s/YOUR_DOMAIN/$DOMAIN/g" /etc/nginx/sites-available/sign-language-model
+else
+    # 도메인 없음: HTTP only (IP 직접 접속, 테스트용)
+    cat > /etc/nginx/sites-available/sign-language-model << 'EOF'
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+
+server {
+    listen 80 default_server;
+    server_name _;
+
+    client_max_body_size 10m;
+
+    location /ws {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    location /health {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location / {
+        limit_req zone=api_limit burst=20 nodelay;
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+}
+EOF
+fi
+
 ln -sf /etc/nginx/sites-available/sign-language-model \
        /etc/nginx/sites-enabled/sign-language-model
 rm -f /etc/nginx/sites-enabled/default
@@ -58,13 +98,24 @@ systemctl enable nginx
 systemctl reload nginx
 
 echo "==> [6/6] SSL 인증서 발급 (Certbot)"
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@$DOMAIN"
-systemctl reload nginx
+if [ -n "$DOMAIN" ]; then
+    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@$DOMAIN"
+    systemctl reload nginx
+    WS_ENDPOINT="wss://$DOMAIN/ws"
+    API_ENDPOINT="https://$DOMAIN"
+else
+    echo "  도메인 미지정 → SSL 건너뜀. HTTP로만 접속 가능합니다."
+    PUBLIC_IP=$(curl -sf http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/externalIp -H "Metadata-Flavor: Google" || echo "<VM_PUBLIC_IP>")
+    WS_ENDPOINT="ws://$PUBLIC_IP/ws"
+    API_ENDPOINT="http://$PUBLIC_IP"
+fi
 
 echo ""
 echo "VM 초기 설정 완료!"
 echo "  다음 단계:"
 echo "  1. 모델 파일 복사: $APP_DIR/models/gloss_models/"
-echo "  2. GitHub Secrets 등록 (GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT_EMAIL, GCP_PROJECT_ID)"
-echo "  3. main 브랜치에 푸시하면 자동 배포 시작"
-echo "  WebSocket 엔드포인트: wss://$DOMAIN/ws"
+echo "  2. GCP 방화벽에서 TCP 80 포트 허용 확인 (HTTPS라면 443도)"
+echo "  3. GitHub Secrets 등록 (GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT_EMAIL, GCP_PROJECT_ID)"
+echo "  4. main 브랜치에 푸시하면 자동 배포 시작"
+echo "  WebSocket 엔드포인트: $WS_ENDPOINT"
+echo "  헬스체크:             $API_ENDPOINT/health"
