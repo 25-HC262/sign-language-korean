@@ -1,24 +1,27 @@
+import importlib
+importlib.import_module("src.config")
+
 import keras
 import keras.optimizers
-
-keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전
+import matplotlib
+import matplotlib.pyplot as plt
 import optuna
 import tensorflow as tf
 from optuna.storages import RDBStorage
-import matplotlib
-import matplotlib.pyplot as plt
 from optuna.visualization.matplotlib import (
     plot_optimization_history,
     plot_intermediate_values,
     plot_param_importances
 )
+
+from src.config import OPTUNA_TRIALS_PATH, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
+    BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM, \
+    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, UMAP_LOAD_PATH
+
 matplotlib.use('Agg') # GUI 없이 파일 저장만 가능하게 하는 백엔드
 
 from load_data.create_dataset import DataSetter
 from src.backbone import get_model
-from src.config import OPTUNA_TRIALS_PATH, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
-    BEST_PARAMS_PATH, OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM, \
-    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, UMAP_LOAD_PATH
 
 
 def objective(trial):

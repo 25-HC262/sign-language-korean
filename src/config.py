@@ -1,7 +1,53 @@
 import argparse
 import datetime
 import json
-import os
+import os, warnings
+# 1. 경고 차단
+warnings.filterwarnings("ignore", category=UserWarning)
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["KERAS_LOG_LEVEL"] = "3"
+
+# 2. 캐라스-텐서플로우 백엔드 설정
+os.environ["KERAS_BACKEND"] = "tensorflow"
+
+import tensorflow as tf
+import keras
+# 3. keras 가속화 설정
+keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전
+
+# 4. GPU 동적 할당
+gpus = tf.config.list_physical_devices('GPU')
+if not gpus:
+    print("WARNING: 지금 GPU가 아니라 CPU를 쓰고 있습니다!")
+else:
+    # 현재 인식된 GPU 개수와 상세 명칭 출력
+    print(f"GPU 사용 중. 현재 사용 가능한 GPU 개수: {len(gpus)}")
+    for i, gpu in enumerate(gpus):
+        print(f" - GPU [{i}]: {gpu}")
+# 1. 경고 설정
+tf.get_logger().setLevel('ERROR')
+from enum import Enum
+from typing import List
+
+# ============= 데이터를 위한 클래스 =============
+class DataType(Enum):
+    GLOSS = "gloss"
+    SENTENCE = "sentence"
+
+class DataDim(Enum):
+    _2D = "2d"
+    _3D = "3d"
+    @classmethod
+    def _missing_(cls, value):
+        if value == 2:
+            return cls._2D
+        if value == 3:
+            return cls._3D
+        return super()._missing_(value)
+
+class Trainer(Enum):
+    GM = "gm"
+    UMAP = "umap"
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 # 경로 안정화
@@ -180,75 +226,120 @@ POINT_LANDMARKS = (
 assert all(0 <= idx < 137 for idx in POINT_LANDMARKS), "Invalid landmark indices!"
 assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"
 
-NUM_NODES = len(POINT_LANDMARKS) # 49
-KEYPOINT_DIM = 2 # 현재 2D이므로
-CHANNELS = KEYPOINT_DIM * NUM_NODES  # x, y for each point
-UMAP_OUTPUT_DIM = 32
-OUTPUT_DIM = CHANNELS
-
 # ==========================================
 # 전역 패스(Path) 변수 설정
 # ==========================================
 def get_config_args():
     """
-    1. 다운로드/업로드 저장소 선택
+    상위 인자 설정. 반드시 설정해야 하는 인자들 및 공통 인자 설정을 담당한다.
+    1. 모델 선택
+        -t 혹은 --trainer로 훈련 객체가 umap인지 gm인지 선택
+    2. 다운로드/업로드 저장소 선택
         - 다운로드: -s 혹은 --storage 뒤에 L,S,G 중 하나를 받도록 설정
-            명령어 예시: `python -m model.gloss_transformer -s L` 혹은 `-storage L`
+            명령어 예시: `python -m train.gloss_transformer_train -s L` 혹은 `-storage L`
         - 업로드: -u 혹은 --upload 뒤에 L,S,G 중 하나를 받도록 설정
-            명령어 예시: `python -m model.gloss_transformer -u G` 혹은 `-upload G`
-    2. umap 모델 선택
-        --umap 뒤에 모델명
-        명령어 예시: `python -m model.gloss_transformer --umap "umap.keras"`
-    3. gloss 모델 선택
-        -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
-        명령어 예시: `python -m model.gloss_transformer -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
-    4. gloss 모델 종류 선택
-        --gmt 혹은 --gloss_model_type으로 모델 종류 선택
-        명령어 예시: `python -m model.gloss_transformer --gmt "transformer"` 혹은 `python -m model.gloss_transformer --gloss_model_type "transformer"`
-    """
-    parser = argparse.ArgumentParser()
+            명령어 예시: `python -m train.gloss_transformer_train -u G` 혹은 `-upload G`
+    3. keypoint 차원수 선택
+        -k 혹은 --kpt_dim으로 keypoint 차원수 선택. 2와 3 중 하나
+        명령어 예시: `python -m train.gloss_transformer_train -k 2` 혹은 `-k 3`
 
-    # 저장소 선택 옵션 - args.storage에 저장
-    parser.add_argument(
+    :return: GM인지 UMAP인지에 대한 구분
+    """
+    parent_parser = argparse.ArgumentParser(add_help=False) # 도움말 중복 방지
+    # 1. 모델 선택
+    parent_parser.add_argument(
+        "-t", "--trainer",
+        choices=[t.value for t in Trainer],
+        default="gm",
+        help="Training model type: gm or umap"
+    )
+    # 2-1. 저장소 선택 옵션 - args.storage에 저장
+    parent_parser.add_argument(
         "-s", "--storage",
         choices=["L", "S", "G"],
         default="L",
         help="Storage type: L(Local), S(S3), G(GCS)"
     )
-
-    # 업로드 선택 옵션 - args.upload에 저장
-    parser.add_argument(
+    # 2-2. 업로드 선택 옵션 - args.upload에 저장
+    parent_parser.add_argument(
         "-u", "--upload",
         choices=["L", "S", "G"],
         default="L",
         help="Storage type: L(Local), S(S3), G(GCS)"
     )
+    # 3. keypoint 차원수 선택 옵션 - args.kpt_dim에 저장
+    parent_parser.add_argument(
+        "-k", "--kpt_dim",
+        type=int,
+        choices=[2,3],
+        default=2,
+        help="Keypoint Dimension type: 2 or 3 (meaning 2D or 3D)"
+    )
+    args, rest = parent_parser.parse_known_args()
 
-    # umap 모델 선택 옵션 - args.umap에 저장
+    # 선택된 trainer에 따른 세부 인자 설정
+    if args.trainer == Trainer.UMAP.value:
+        fin_args = get_umap_args(parent_parser, rest)
+    else:
+        fin_args = get_gm_args(parent_parser, rest)
+    return fin_args
+
+def get_umap_args(parent: argparse.ArgumentParser, rest: List[str]):
+    """
+    1. umap 축소 차원수(결과) 선택
+        --u_dim 뒤에 umap을 통해 축소하고자 하는 차원수 선택
+        명령어 예시: `python -m train.reduction_train --u_dim 64`
+    :return:
+    """
+    parser = argparse.ArgumentParser(parents=[parent]) # 공통 인자 상속
+    # 1. umap 축소 차원수 선택 옵션 - args.u_dim에 저장
+    parser.add_argument(
+        "--u_dim",
+        type=int,
+        default=32,
+        help="Reducing dimension using Umap: default 32"
+    )
+    args, _ = parser.parse_known_args(rest)
+    print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
+    return args
+
+def get_gm_args(parent: argparse.ArgumentParser, rest: List[str]):
+    """
+    1. umap 모델 선택
+        --umap 뒤에 모델명
+        명령어 예시: `python -m train.gloss_transformer_train --umap "umap.keras"`
+    2. 사용할 gloss 모델 선택
+        -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
+        명령어 예시: `python -m train.gloss_transformer_train -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
+    """
+    parser = argparse.ArgumentParser(parents=[parent])
+    # 1. 차원 축소를 위한 umap 모델 선택 옵션 - args.umap에 저장: 차원 축소를 하지 않을 경우 None일 수 있음; TO-DO
     parser.add_argument(
         "--umap",
         default="encoder.keras"
     )
-    # gloss 모델 선택 옵션 - args.gm에 저장
+    # 2. main 사용 gloss 모델 선택 옵션 - args.gm에 저장
     parser.add_argument(
         "-g", "--gm", "--gloss_model",
         default="sign_language_v1.h5"
     )
-
-    # gloss 모델 종류 선택 옵션
+    # 3. gloss 모델 종류 선택 옵션 - args.gmt 저장
     parser.add_argument(
         "--gmt", "--gloss_model_type",
         default="transformer"
     )
-
-    args, _ = parser.parse_known_args()
+    args, _ = parser.parse_known_args(rest)
     print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
     return args
 
 args = get_config_args()
 STORAGE_MODE = args.storage
 UPLOAD_MODE = args.upload
-SELECTED_GM_TYPE = args.gmt
+GM_MODEL = getattr(args, 'gm', "sign_language_v1.h5")
+SELECTED_GM_TYPE = getattr(args, 'gmt', "transformer")
+KEYPOINT_DIM = getattr(args, 'kpt_dim', 2) # default 2
+UMAP_OUTPUT_DIM = getattr(args, 'u_dim', 32) # default 32
+UMAP_MODEL = getattr(args, 'umap', 'encoder.keras')
 
 date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 
@@ -284,8 +375,8 @@ print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 LOAD_DATA, LOAD_UMAP, LOAD_GM, _, LOAD_TEST = base_map.get(UPLOAD_MODE, base_map["L"])
 
 # 최종 경로
-UMAP_LOAD_PATH = f'{LOAD_UMAP}/{args.umap}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
-GM_LOAD_PATH = f'{LOAD_GM}/{args.gm}'       # 프로젝트에 사용되는 최적 GLOSS MODEL
+UMAP_LOAD_PATH = f'{LOAD_UMAP}/{UMAP_MODEL}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
+GM_LOAD_PATH = f'{LOAD_GM}/{GM_MODEL}'       # 프로젝트에 사용되는 최적 GLOSS MODEL
 
 # 저장 경로
 LOCAL_PATHS = {
@@ -296,6 +387,12 @@ LOCAL_PATHS = {
     "umap_ckpt": f"{L_CKPT}/{files['umap_ckpt']}",
     "umap_final": f"{L_UMAP}/{files['umap_keras']}"
 }
+
+# ============== 학습을 위한 모델 설정 ==============
+DATA_TYPE = DataType.GLOSS # default
+NUM_NODES = len(POINT_LANDMARKS) # 49
+CHANNELS = KEYPOINT_DIM * NUM_NODES  # x, y for each point
+OUTPUT_DIM = CHANNELS
 
 # ============== WandB 설정 ==============
 WANDB_GM_PROJECT = f"grad-gloss-{SELECTED_GM_TYPE}-training"

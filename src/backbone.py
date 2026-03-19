@@ -1,11 +1,12 @@
 # src/backbone.py
-import os
-os.environ["KERAS_BACKEND"] = "tensorflow"
-from .utils import Preprocess
-from .config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
-import tensorflow as tf
-import keras
+import importlib
+importlib.import_module("src.config")
 import itertools
+
+import keras
+import tensorflow as tf
+
+from src.config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
 
 MBBLOCK_COUNTER = itertools.count(1)
 
@@ -295,10 +296,10 @@ class TFLiteModel(tf.Module):
         super(TFLiteModel, self).__init__()
 
         # Load the feature generation and main model
-        self.preprocess_layer = Preprocess()
+        # self.preprocess_layer = Preprocess()
         self.islr_model = islr_model  # Single model, not a list
-    
-    @tf.function(input_signature=[tf.TensorSpec(shape=[None, 137, 3], dtype=tf.float32, name='inputs')])
+
+    @tf.function
     def __call__(self, inputs):
         """
         Applies the feature generation model and main model to the input tensors.
@@ -309,10 +310,10 @@ class TFLiteModel(tf.Module):
         Returns:
             A dictionary with a single key 'outputs' and corresponding output tensor.
         """
-        x = inputs # self.preprocess_layer(inputs)
-        expected_shape = self.islr_model.input_shape[1:] # (배치 크기 제외)
-        x.set_shape([inputs.shape[0]] + expected_shape)
-        outputs = self.islr_model(x)  # Call single model directly
+        # x = inputs # self.preprocess_layer(inputs)
+        # expected_shape = self.islr_model.input_shape[1:] # (배치 크기 제외)
+        # x.set_shape([inputs.shape[0]] + expected_shape)
+        outputs = self.islr_model(inputs, training=False)  # Call single model directly
         return {'outputs': outputs}
 
 def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES):
@@ -328,7 +329,7 @@ def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes
     Returns:
         A TensorFlow Keras Model object.
     """
-    inp = keras.Input(shape=(max_len, UMAP_OUTPUT_DIM)) # 기존 CHANNELS -> 유맵 차원 축소로 UMAP_OUTPUT_DIM
+    inp = keras.Input(shape=(max_len, dim)) # 기존 CHANNELS -> 유맵 차원 축소로 UMAP_OUTPUT_DIM
     x = keras.layers.Masking(mask_value=PAD)(inp) #we don't need masking layer with inference
     #x = inp # 추론 시에는 해당 부분을 주석 처리 하고, 학습 시에는 326(윗) 라인을 주석 처리해야 합니다.
     ksize = 17
