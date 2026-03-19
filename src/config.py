@@ -3,6 +3,7 @@ import datetime
 import json
 import os
 import warnings
+from pathlib import Path
 
 # 1. 경고 차단
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -53,13 +54,12 @@ class Trainer(Enum):
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 # 경로 안정화
-CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(CONFIG_DIR, ".."))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 라벨링 데이터
 label_map_name = "label_map.json"
-LABEL_MAP_PATH = os.path.join(PROJECT_ROOT, "src", label_map_name)
-if os.path.exists(LABEL_MAP_PATH):
+LABEL_MAP_PATH = PROJECT_ROOT / "src" / label_map_name
+if LABEL_MAP_PATH.exists():
     with open(LABEL_MAP_PATH, 'r', encoding='utf-8') as f:
         KSL_SENTENCES = json.load(f)
 else:
@@ -369,15 +369,15 @@ files = {
 }
 
 # 로컬 베이스는 항상 필요
-L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST = (os.path.join(PROJECT_ROOT, L_PATH) for L_PATH in base_map['L'])
-L_TOOLS = os.path.join(PROJECT_ROOT, "tools")
-for path in [L_CKPT, L_GM, L_UMAP, L_TOOLS, L_TEST]:
-    os.makedirs(path, exist_ok=True)
-L_PREPROCESSED_DATA = os.path.join(PROJECT_ROOT, "data/processed")
+L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST = (PROJECT_ROOT / p for p in base_map['L'])
+L_TOOLS = PROJECT_ROOT / "tools"
+for p in [L_CKPT, L_GM, L_UMAP, L_TOOLS, L_TEST]:
+    p.mkdir(parents=True, exist_ok=True)
+L_PREPROCESSED_DATA = PROJECT_ROOT / "data" / "processed"
 print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 
 # LOAD_BASE: 사용자 선택 모드(UPLOAD_MODE)에서 가져옴
-LOAD_DATA, LOAD_UMAP, LOAD_GM, _, LOAD_TEST = base_map.get(UPLOAD_MODE, base_map["L"])
+LOAD_DATA, LOAD_UMAP, LOAD_GM, _, LOAD_TEST = base_map.get(UPLOAD_MODE, base_map['L'])
 
 # 최종 경로
 UMAP_LOAD_PATH = f'{LOAD_UMAP}/{UMAP_MODEL}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL

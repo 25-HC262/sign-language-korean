@@ -197,7 +197,8 @@ class DataDimensionReducer:
         print(f"Embedding shape: {embedding.shape}")
 
         # 2-3. embedding.pkl 객체 저장하기
-        embedding_file_path = os.path.join(self.save_path, "embedding.pkl")
+        from pathlib import Path
+        embedding_file_path = Path(self.save_path) / "embedding.pkl"
         print(f"Saving embedding to {embedding_file_path}...")
         with open(embedding_file_path, 'wb') as ef:
             pickle.dump(embedding, ef)

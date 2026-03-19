@@ -1,6 +1,5 @@
 import importlib
 importlib.import_module("src.config")
-import glob
 import json
 import os
 import random
@@ -76,10 +75,11 @@ class DataSetter:
 
         # 경로 설정
         umap_name = Path(umap_path).stem if umap_path else "None" # None 설정이 default가 되도록 바꿀 것. & TO-DO. umap 선택 가능하도록
-        data_dir = f"{self.trainer}-un={umap_name}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}" if self.trainer is Trainer.GM else f"{self.trainer}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}"
+        # gm인 경우 모델 구분 없이 사용하도록. umap dataset인 경우 맨 앞에 umap 붙일 것.
+        data_dir = f"un={umap_name}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}" if self.trainer is Trainer.GM else f"{self.trainer.value}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}"
         dir_path = Path(L_PREPROCESSED_DATA) / data_dir
 
-        print(f"[*] 초기화 완료: {data_type.name} / {data_dim.name}") # TO-DO: dim에 맞게 create_dataset에서 가져오도록.
+        print(f"[*] 초기화 완료: {data_type.name} / {data_dim.value}") # TO-DO: dim에 맞게 create_dataset에서 가져오도록.
 
         train_path = dir_path / "train_ds"
         val_path = dir_path / "val_ds"
@@ -309,26 +309,29 @@ class TrainDataLoader:
                 pbar_sentences.set_postfix(current_class=folder_name)
                 for direction in DIRECTIONS:
                     if is_s3:
-                        direction_dir = os.path.join(self.s3_prefix, folder_name, f"{folder_name}_{direction}/")
+                        direction_dir = f"{self.s3_prefix}/{folder_name}/{folder_name}_{direction}"
                         person_paths = self._list_s3_subdirs(direction_dir)
                     elif is_gcs:
-                        direction_dir = os.path.join(self.gcs_prefix, folder_name, f"{folder_name}_{direction}/")
+                        direction_dir = f"{self.gcs_prefix}/{folder_name}/{folder_name}_{direction}/"
                         person_paths = self._list_gcs_subdirs(direction_dir)
                     else:
-                        direction_dir = os.path.join(path, folder_name, f"{folder_name}_{direction}")
-                        if not os.path.exists(direction_dir): continue
-                        person_paths = glob.glob(os.path.join(str(direction_dir), f"*REAL*_{direction}"))
+                        base_path = Path(path)
+                        direction_dir = base_path / folder_name / f"{folder_name}_{direction}"
+                        if not direction_dir.exists(): continue
+                        person_paths = list(direction_dir.glob(f"*REAL*_{direction}"))
                     tqdm.write(f"Searching in : {direction_dir}")
 
                     for person_path in tqdm(person_paths, desc=f"Loading {folder_name}_{direction}",
                                             position=1, leave=False):
+                        person_path_str = str(person_path)
                         if is_s3:
-                            keypoint_files = self._get_s3_keypoint_files(person_path)
+                            keypoint_files = self._get_s3_keypoint_files(person_path_str)
                         elif is_gcs:
-                            keypoint_files = self._get_gcs_keypoint_files(person_path)
+                            keypoint_files = self._get_gcs_keypoint_files(person_path_str)
                         else:
-                            if not os.path.isdir(person_path): continue
-                            keypoint_files = sorted(glob.glob(os.path.join(person_path,"*_keypoints.json")))
+                            person_p = Path(person_path)
+                            if not person_p.is_dir(): continue
+                            keypoint_files = sorted([str(f) for f in person_p.glob("*_keypoints.json")])
 
                         keypoints_batch = []
                         for kp_file in tqdm(keypoint_files, desc="      Processing Frames", position=2, leave=False,
@@ -583,13 +586,14 @@ def upload_file_to_gcs(local_root_path: str, gcs_path: str, file_name: str = Non
         print(f"Preparing to upload directory {local_root} to gs://{bucket_name}/{save_prefix}")
         for local_path in local_root.rglob('*'):
             if local_path.is_file():
-                gcs_key = os.path.join(save_prefix, str(local_path.relative_to(local_root)))
+                rel_path = local_path.relative_to(local_root).as_posix()
+                gcs_key = f"{save_prefix}/{rel_path}"
                 files_to_upload.append((local_path, gcs_key))
     else:
         local_file = local_root / file_name
         print(f"Preparing to upload file {local_file} to gs://{bucket_name}/{save_prefix}")
         if local_file.is_file():
-            gcs_key = os.path.join(save_prefix, file_name)
+            gcs_key = f"{save_prefix}/{file_name}"
             files_to_upload.append((local_file, gcs_key))
 
     for local_file_path, gcs_key in files_to_upload:

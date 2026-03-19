@@ -175,7 +175,7 @@ if __name__=="__main__":
         plt.tight_layout()
 
         # 4-3. 경로 결합 및 저장
-        save_path = os.path.join(L_TOOLS, filename)
+        save_path = L_TOOLS / filename
         plt.savefig(save_path, dpi=300)
 
         print(f"    > {name} 저장 완료: {save_path}")
