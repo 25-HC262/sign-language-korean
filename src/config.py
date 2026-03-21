@@ -14,11 +14,8 @@ os.environ["KERAS_LOG_LEVEL"] = "3"
 os.environ["KERAS_BACKEND"] = "tensorflow"
 
 import tensorflow as tf
-import keras
-# 3. keras 가속화 설정
-keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전
 
-# 4. GPU 동적 할당
+# 3. GPU 동적 할당
 gpus = tf.config.list_physical_devices('GPU')
 if not gpus:
     print("WARNING: 지금 GPU가 아니라 CPU를 쓰고 있습니다!")
@@ -57,7 +54,7 @@ class Trainer(Enum):
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 라벨링 데이터
-label_map_name = "label_map.json"
+label_map_name = "primary_label_map.json"
 LABEL_MAP_PATH = PROJECT_ROOT / "src" / label_map_name
 if LABEL_MAP_PATH.exists():
     with open(LABEL_MAP_PATH, 'r', encoding='utf-8') as f:
@@ -371,7 +368,8 @@ files = {
 # 로컬 베이스는 항상 필요
 L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST = (PROJECT_ROOT / p for p in base_map['L'])
 L_TOOLS = PROJECT_ROOT / "tools"
-for p in [L_CKPT, L_GM, L_UMAP, L_TOOLS, L_TEST]:
+L_PARAMS = L_GM / "best_params"
+for p in [L_CKPT, L_GM, L_UMAP, L_TOOLS, L_TEST, L_PARAMS]:
     p.mkdir(parents=True, exist_ok=True)
 L_PREPROCESSED_DATA = PROJECT_ROOT / "data" / "processed"
 print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
@@ -415,7 +413,7 @@ OPTUNA_TRIALS_PATH = "sqlite:///optuna_trials.db" # 로컬 수정 필요
 SUBSET_RATIO = 0.5
 OPTUNA_STUDY_NAME = "transformers_optuna_study"
 OPTUNA_MODEL = "transformer"
-BEST_PARAMS_PATH = f"{L_GM}/best_params-{date_idx}.json"
+# BEST_PARAMS_PATH =
 N_TRIALS = 20
 
 if __name__ == "__main__":

@@ -127,8 +127,9 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     wandb.log_artifact(artifact)
 
     # 4. 경량화 모델 변환
+    keras.mixed_precision.set_global_policy("float32") # tflite casting 가능하도록
+    fp32_model = keras.models.load_model(LOCAL_PATHS["gm_final"])
     print("Converting to TFLite...")
-    tflite_model = TFLiteModel(model)  # Pass single model, not list
 
     concrete_input_signature = tf.TensorSpec(
         shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
