@@ -413,7 +413,6 @@ OPTUNA_TRIALS_PATH = "sqlite:///optuna_trials.db" # 로컬 수정 필요
 SUBSET_RATIO = 0.5
 OPTUNA_STUDY_NAME = "transformers_optuna_study"
 OPTUNA_MODEL = "transformer"
-# BEST_PARAMS_PATH =
 N_TRIALS = 20
 
 if __name__ == "__main__":
