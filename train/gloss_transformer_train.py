@@ -23,7 +23,6 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     import keras
     keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
 
-    config_dict = locals() # 모든 인자 자동 수집
     wandb.init(
         project=WANDB_GM_PROJECT,
         name=WANDB_GM_NAME,
