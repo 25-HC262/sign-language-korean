@@ -54,7 +54,7 @@ class Trainer(Enum):
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 라벨링 데이터
-label_map_name = "primary_label_map.json"
+label_map_name = "label_map.json"
 LABEL_MAP_PATH = PROJECT_ROOT / "src" / label_map_name
 if LABEL_MAP_PATH.exists():
     with open(LABEL_MAP_PATH, 'r', encoding='utf-8') as f:
