@@ -76,7 +76,8 @@ class DataSetter:
 
         # 경로 설정
         umap_name = Path(umap_path).stem if umap_path else "None" # None 설정이 default가 되도록 바꿀 것. & TO-DO. umap 선택 가능하도록
-        data_dir = f"{self.trainer}-un={umap_name}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}" if self.trainer is Trainer.GM else f"{self.trainer}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}"
+        # gm인 경우에는 trainer 종류를 명시하지 않는다. umap 데이터인 경우 'umap'으로 시작한다.
+        data_dir = f"un={umap_name}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}" if self.trainer is Trainer.GM else f"{self.trainer.value}-nc={NUM_CLASSES}-dt={data_type.value}-dd={data_dim.value}"
         dir_path = Path(L_PREPROCESSED_DATA) / data_dir
 
         print(f"[*] 초기화 완료: {data_type.name} / {data_dim.name}") # TO-DO: dim에 맞게 create_dataset에서 가져오도록.
@@ -89,7 +90,8 @@ class DataSetter:
             "data_path": LOAD_DATA,
             "trainer": trainer,
             "dim_reduction": dim_reduction,
-            "umap_path": umap_path
+            "umap_path": umap_path,
+            "kpt_dim": data_dim
         }
         if trainer is Trainer.UMAP:
             loader_args.update({
@@ -172,7 +174,9 @@ class DataSetter:
         return self.final_datasets
 
 class TrainDataLoader:
-    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=None, umap_data_num=None, test_umap_data_num=None, dim_reduction=False):
+    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=LOAD_TEST,
+                 umap_path=None, umap_data_num=None, test_umap_data_num=None, dim_reduction=False,
+                 kpt_dim: DataDim=DataDim._2D):
         self.data_path = data_path
         self.test_data_path = test_data_path
         self.umap_path = umap_path
@@ -181,6 +185,8 @@ class TrainDataLoader:
         self.trainer = trainer
         self.dim_reduction = dim_reduction
         self.label_map = {name: i for i, name in enumerate(KSL_SENTENCES.keys())}
+        self.kpt_dim_d = kpt_dim.value # 2d
+        self.kpt_dim = kpt_dim.num     # 2
         if self.dim_reduction:
             print(f"Loading UMAP encoder model from: {self.umap_path}")
             try:
@@ -382,49 +388,53 @@ class TrainDataLoader:
 
     def _json_to_numpy(self, data: Dict[str, Any]) -> np.ndarray:
         person = data
-        # Extract pose keypoints (25 points, 3 values each)
-        pose_kp = np.array(person.get('pose_keypoints_2d', [])).reshape(-1, 3)
+        # Extract pose keypoints (25 points, kpt_dim+1(for conf) values each)
+        kpt_dim = self.kpt_dim
+        crop_std = kpt_dim + 1 # conf 포함한 길이
+        pose_kp = np.array(person.get(f'pose_keypoints_{self.kpt_dim_d}', [])).reshape(-1, crop_std)
         assert pose_kp.shape[0] == 25, f"pose keypoint shape differs: {pose_kp.shape[0]}"
 
         # Extract face keypoints (70 points)
-        face_kp = np.array(person.get('face_keypoints_2d', [])).reshape(-1, 3)
+        face_kp = np.array(person.get(f'face_keypoints_{self.kpt_dim_d}', [])).reshape(-1, crop_std)
         assert face_kp.shape[0] == 70, f"face keypoint shape differs: {face_kp.shape[0]}"
 
         # Extract hand keypoints (21 points each)
         left_hand_kp = np.array(person.get(
-            'hand_left_keypoints_2d', [])).reshape(-1, 3)
+            f'hand_left_keypoints_{self.kpt_dim_d}', [])).reshape(-1, crop_std)
         assert left_hand_kp.shape[0] == 21, f"left hand keypoint shape differs: {left_hand_kp.shape[0]}"
 
         right_hand_kp = np.array(person.get(
-            'hand_right_keypoints_2d', [])).reshape(-1, 3)
+            f'hand_right_keypoints_{self.kpt_dim_d}', [])).reshape(-1, crop_std)
         assert right_hand_kp.shape[0] == 21, f"right hand keypoint shape differs: {right_hand_kp.shape[0]}"
 
-        # Take x, y coordinates and confidence scores
-        pose_xy = pose_kp[:, :2]
-        pose_conf = pose_kp[:, 2:3]
+        # Take x, y (or x, y, z) coordinates and confidence scores
+        pose_coords = pose_kp[:, :kpt_dim]
+        pose_conf = pose_kp[:, kpt_dim:kpt_dim+1]
 
-        face_xy = face_kp[:, :2]
-        face_conf = face_kp[:, 2:3]
+        face_coords = face_kp[:, :kpt_dim]
+        face_conf = face_kp[:, kpt_dim:kpt_dim+1]
 
-        left_hand_xy = left_hand_kp[:, :2]
-        left_hand_conf = left_hand_kp[:, 2:3]
+        left_hand_coords = left_hand_kp[:, :kpt_dim]
+        left_hand_conf = left_hand_kp[:, kpt_dim:kpt_dim+1]
 
-        right_hand_xy = right_hand_kp[:, :2]
-        right_hand_conf = right_hand_kp[:, 2:3]
+        right_hand_coords = right_hand_kp[:, :kpt_dim]
+        right_hand_conf = right_hand_kp[:, kpt_dim:kpt_dim+1]
 
-        # [-1, 1] 정규화
+        # TO-DO 분기문 작성 필요
+
+        # 2D 키포인트의 [-1, 1] 정규화
         # First, find the bounding box of all valid points
         all_x = np.concatenate([
-            pose_xy[pose_conf[:, 0] > 0.1, 0],
-            face_xy[face_conf[:, 0] > 0.1, 0],
-            left_hand_xy[left_hand_conf[:, 0] > 0.1, 0],
-            right_hand_xy[right_hand_conf[:, 0] > 0.1, 0]
+            pose_coords[pose_conf[:, 0] > 0.1, 0],
+            face_coords[face_conf[:, 0] > 0.1, 0],
+            left_hand_coords[left_hand_conf[:, 0] > 0.1, 0],
+            right_hand_coords[right_hand_conf[:, 0] > 0.1, 0]
         ])
         all_y = np.concatenate([
-            pose_xy[pose_conf[:, 0] > 0.1, 1],
-            face_xy[face_conf[:, 0] > 0.1, 1],
-            left_hand_xy[left_hand_conf[:, 0] > 0.1, 1],
-            right_hand_xy[right_hand_conf[:, 0] > 0.1, 1]
+            pose_coords[pose_conf[:, 0] > 0.1, 1],
+            face_coords[face_conf[:, 0] > 0.1, 1],
+            left_hand_coords[left_hand_conf[:, 0] > 0.1, 1],
+            right_hand_coords[right_hand_conf[:, 0] > 0.1, 1]
         ])
 
         if len(all_x) > 0 and len(all_y) > 0:
@@ -440,23 +450,23 @@ class TrainDataLoader:
                 scale = 1
 
             # [-1, 1] 정규화
-            pose_xy = (pose_xy - [center_x, center_y]) / scale
-            face_xy = (face_xy - [center_x, center_y]) / scale
-            left_hand_xy = (left_hand_xy - [center_x, center_y]) / scale
-            right_hand_xy = (right_hand_xy - [center_x, center_y]) / scale
+            pose_coords = (pose_coords - [center_x, center_y]) / scale
+            face_coords = (face_coords - [center_x, center_y]) / scale
+            left_hand_coords = (left_hand_coords - [center_x, center_y]) / scale
+            right_hand_coords = (right_hand_coords - [center_x, center_y]) / scale
 
             # Clip
-            pose_xy = np.clip(pose_xy, -2, 2)
-            face_xy = np.clip(face_xy, -2, 2)
-            left_hand_xy = np.clip(left_hand_xy, -2, 2)
-            right_hand_xy = np.clip(right_hand_xy, -2, 2)
+            pose_coords = np.clip(pose_coords, -2, 2)
+            face_coords = np.clip(face_coords, -2, 2)
+            left_hand_coords = np.clip(left_hand_coords, -2, 2)
+            right_hand_coords = np.clip(right_hand_coords, -2, 2)
 
         # Concatenate all keypoints: body(25) + face(70) + left_hand(21) + right_hand(21) = 137
         all_keypoints = np.concatenate([
-            pose_xy,
-            face_xy,
-            left_hand_xy,
-            right_hand_xy
+            pose_coords,
+            face_coords,
+            left_hand_coords,
+            right_hand_coords
         ], axis=0)
 
         # 선택된 키포인트 추출

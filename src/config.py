@@ -1,7 +1,9 @@
 import argparse
 import datetime
 import json
-import os, warnings
+import os
+import warnings
+
 # 1. 경고 차단
 warnings.filterwarnings("ignore", category=UserWarning)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -37,6 +39,11 @@ class DataType(Enum):
 class DataDim(Enum):
     _2D = "2d"
     _3D = "3d"
+
+    @property
+    def num(self):
+        return 2 if self == DataDim._2D else 3 # DataDim._2D.num을 호출하면 2가 반환됨
+
     @classmethod
     def _missing_(cls, value):
         if value == 2:
