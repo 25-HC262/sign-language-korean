@@ -76,7 +76,7 @@ def train_model(learning_rate: float = LEARNING_RATE,
         num_classes=NUM_CLASSES,
         cnn_channels=cnn_channels,
         lstm_units=lstm_units,
-        dropout=dropout
+        dropout_rate=dropout
     )
     model.compile(
         optimizer=keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay),

@@ -7,7 +7,7 @@ import keras
 
 from load_data.create_dataset import DataSetter
 # custom layers
-from src.backbone import get_model
+from src.transformer import get_model
 from src.config import L_GM, UMAP_OUTPUT_DIM, NUM_CLASSES, L_CKPT, UMAP_LOAD_PATH
 
 def evaluating_model_with_weights(

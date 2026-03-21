@@ -11,7 +11,7 @@ from wandb.integration.keras import WandbMetricsLogger
 # 커스텀
 from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
-from src.backbone import get_model, TFLiteModel
+from src.transformer import get_model, TFLiteModel
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH, SELECTED_GM_TYPE, CHANNELS, \
     NUM_NODES, STORAGE_MODE, VALIDATION_SPLIT, WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, \

@@ -1,4 +1,4 @@
-# src/backbone.py
+# src/transformer.py
 import importlib
 importlib.import_module("src.config")
 import itertools

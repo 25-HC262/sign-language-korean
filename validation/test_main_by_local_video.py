@@ -22,9 +22,9 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from load_data.create_dataset import mediapipe_to_openpose_keypoints  # 포맷
-# Import custom modules
-from src.backbone import CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
 from src.config import SEQ_LEN, CROP_LEN, POINT_LANDMARKS, KSL_SENTENCES
+# Import custom modules
+from src.transformer import CausalDWConv1D, ECA, LateDropout, MultiHeadSelfAttention
 
 # MediaPipe setup
 mp_holistic = mp.solutions.holistic

@@ -6,7 +6,7 @@ from .config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
 
 
 def get_model(max_len=CROP_LEN, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES,
-              cnn_channels=64, lstm_units=128, dropout=0.3):
+              cnn_channels=64, lstm_units=128, dropout_rate=0.3):
     """
     수어 인식을 위한 CNN+LSTM 모델.
 
@@ -23,7 +23,7 @@ def get_model(max_len=CROP_LEN, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES,
         num_classes  (int)  : 분류 클래스 수              (기본: NUM_CLASSES)
         cnn_channels (int)  : Conv1D 출력 채널 수         (기본: 64)
         lstm_units   (int)  : LSTM 히든 유닛 수           (기본: 128)
-        dropout      (float): Dropout 비율               (기본: 0.3)
+        dropout_rate      (float): Dropout 비율               (기본: 0.3)
 
     Returns:
         keras.Model  입력 shape: (batch, max_len, dim)
@@ -32,7 +32,7 @@ def get_model(max_len=CROP_LEN, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES,
     inp = keras.Input(shape=(max_len, dim))
     x = keras.layers.Masking(mask_value=PAD)(inp)
 
-    # ----- Stem: 입력 차원 → cnn_channels (backbone.py 스타일) -----
+    # ----- Stem: 입력 차원 → cnn_channels (transformer.py 스타일) -----
     x = keras.layers.Dense(cnn_channels, use_bias=False, name='stem_conv')(x)
     x = keras.layers.BatchNormalization(momentum=0.95, name='stem_bn')(x)
     x = keras.layers.Activation('relu')(x)
@@ -60,7 +60,7 @@ def get_model(max_len=CROP_LEN, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES,
     )(x)
 
     # ----- Output -----
-    x = keras.layers.Dropout(dropout)(x)
+    x = keras.layers.Dropout(dropout_rate)(x)
     x = keras.layers.Dense(
         num_classes, activation='softmax', dtype='float32', name='classifier'
     )(x)
