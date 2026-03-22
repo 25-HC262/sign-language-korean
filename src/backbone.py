@@ -5,12 +5,14 @@ import itertools
 
 import keras
 keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
+from keras import ops
 import tensorflow as tf
 
-from src.config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
+from src.config import CROP_LEN, NUM_CLASSES, UMAP_OUTPUT_DIM, PAD
 
 MBBLOCK_COUNTER = itertools.count(1)
 
+@keras.saving.register_keras_serializable()
 class ECA(keras.layers.Layer):
     """
     Efficient Channel Attention layer.
@@ -39,14 +41,26 @@ class ECA(keras.layers.Layer):
         Returns:
             Output tensor after applying the efficient channel attention mechanism.
         """
-        nn = keras.layers.GlobalAveragePooling1D()(inputs, mask=mask)
-        nn = tf.expand_dims(nn, -1)
+        nn = keras.layers.GlobalAveragePooling1D()(inputs, mask=mask)       # (Batch, MAX_SEQ, OUTPUT_DIM) -> (Batch, OUTPUT_DIM)
+        nn = tf.expand_dims(nn, -1)        # (Batch, OUTPUT_DIM) -> (Batch, OUTPUT_DIM, 1)
         nn = self.conv(nn)
         nn = tf.squeeze(nn, -1)
         nn = tf.nn.sigmoid(nn)
         nn = nn[:,None,:]
+        nn = ops.cast(nn, inputs.dtype) # inputs의 dtype으로 nn casting - fp16 가속 설정
         return inputs * nn
 
+    def build(self, input_shape): # self.conv를 구성함.
+        # GAP 이후 shape는 (Batch, Channels, 1)이 됨
+        self.conv.build((None, input_shape[-1], 1))
+        super().build(input_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"kernel_size": self.kernel_size})
+        return config
+
+@keras.saving.register_keras_serializable()
 class LateDropout(keras.layers.Layer):
     """
     Layer that applies dropout after a certain training step.
@@ -64,12 +78,14 @@ class LateDropout(keras.layers.Layer):
         self.supports_masking = True
         self.rate = rate
         self.start_step = start_step
+        self.noise_shape = noise_shape
         self.dropout = keras.layers.Dropout(rate, noise_shape=noise_shape)
 
     def build(self, input_shape):
-        super().build(input_shape)
+        self.dropout.build(input_shape) # 자식 드롭아웃 빌드
         agg = tf.VariableAggregation.ONLY_FIRST_REPLICA
         self._train_counter = tf.Variable(0, dtype="int64", aggregation=agg, trainable=False)
+        super().build(input_shape)
 
     def call(self, inputs, training=False):
         """
@@ -82,11 +98,26 @@ class LateDropout(keras.layers.Layer):
         Returns:
             Output tensor after applying dropout.
         """
-        x = tf.cond(self._train_counter < self.start_step, lambda:inputs, lambda:self.dropout(inputs, training=training))
+        dtype = inputs.dtype
+        x = tf.cond(
+            self._train_counter < self.start_step,
+            lambda:inputs,
+            lambda: ops.cast(self.dropout(inputs, training=training), dtype)        # inputs의 dtype으로 casting - fp16 가속 설정
+        )
         if training:
             self._train_counter.assign_add(1)
-        return x
+        return ops.cast(x, dtype)                                                        # inputs의 dtype으로 casting - fp16 가속 설정
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "rate": self.rate,
+            "start_step": self.start_step,
+            "noise_shape": self.noise_shape
+        })
+        return config
+
+@keras.saving.register_keras_serializable()
 class CausalDWConv1D(keras.layers.Layer):
     """
     Causal Dilated Depthwise Convolutional 1D layer.
@@ -108,16 +139,22 @@ class CausalDWConv1D(keras.layers.Layer):
         use_bias=False,
         depthwise_initializer='glorot_uniform',
         name='', **kwargs):
-        super().__init__(name=name,**kwargs)
-        self.causal_pad = keras.layers.ZeroPadding1D((dilation_rate*(kernel_size-1),0),name=name + '_pad')
+        self.name = name
+        super().__init__(name=self.name,**kwargs)
+        self.kernel_size = kernel_size
+        self.dilation_rate = dilation_rate
+        self.use_bias = use_bias
+        self.depthwise_initializer = depthwise_initializer
+
+        self.causal_pad = keras.layers.ZeroPadding1D((self.dilation_rate*(self.kernel_size-1),0),name=name + '_pad')
         self.dw_conv = keras.layers.DepthwiseConv1D(
-                            kernel_size,
+                            self.kernel_size,
                             strides=1,
-                            dilation_rate=dilation_rate,
+                            dilation_rate=self.dilation_rate,
                             padding='valid',
-                            use_bias=use_bias,
-                            depthwise_initializer=depthwise_initializer,
-                            name=name + '_dwconv')
+                            use_bias=self.use_bias,
+                            depthwise_initializer=self.depthwise_initializer,
+                            name=self.name + '_dwconv')
         self.supports_masking = True
         
     def call(self, inputs):
@@ -132,7 +169,22 @@ class CausalDWConv1D(keras.layers.Layer):
         """
         x = self.causal_pad(inputs)
         x = self.dw_conv(x)
-        return x
+        return ops.cast(x, inputs.dtype) # inputs의 dtype으로 casting - fp16 가속 설정
+
+    def build(self, input_shape):
+        pad_len = self.dilation_rate*(self.kernel_size-1)
+        self.dw_conv.build((None, input_shape[1] + pad_len, input_shape[2]))
+        super().build(input_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "kernel_size": self.kernel_size,
+            "dilation_rate": self.dilation_rate,
+            "use_bias": self.use_bias,
+            "depthwise_initializer": self.depthwise_initializer,
+        })
+        return config
 
 def Conv1DBlock(channel_size,
                 kernel_size,
@@ -193,12 +245,13 @@ name=None):
         if drop_rate > 0:
             x = keras.layers.Dropout(drop_rate, noise_shape=(None,1,1), name=name + '_drop')(x)
 
-        if (channels_in == channel_size):
+        if channels_in == channel_size:
             x = keras.layers.Add(name=name + '_add')([x, skip])
         return x
 
     return apply
 
+@keras.saving.register_keras_serializable()
 class MultiHeadSelfAttention(keras.layers.Layer):
     """
     Multi-Head Self-Attention layer.
@@ -211,13 +264,15 @@ class MultiHeadSelfAttention(keras.layers.Layer):
     Returns:
         Output tensor after applying the multi-head self-attention mechanism.
     """
-    def __init__(self, dim=256, num_heads=4, dropout=0, **kwargs):
+    def __init__(self, dim=256, num_heads=4, drop_rate=0.0, **kwargs):
         super().__init__(**kwargs)
         self.dim = dim
         self.scale = self.dim ** -0.5
         self.num_heads = num_heads
+        self.drop_rate = drop_rate
+
         self.qkv = keras.layers.Dense(3 * dim, use_bias=False)
-        self.drop1 = keras.layers.Dropout(dropout)
+        self.drop1 = keras.layers.Dropout(self.drop_rate)
         self.proj = keras.layers.Dense(dim, use_bias=False)
         self.supports_masking = True
 
@@ -232,23 +287,40 @@ class MultiHeadSelfAttention(keras.layers.Layer):
         Returns:
             Output tensor after applying the multi-head self-attention mechanism.
         """
+        dtype = inputs.dtype # 입력 타입 고정
+
         qkv = self.qkv(inputs)
         qkv = keras.layers.Permute((2, 1, 3))(keras.layers.Reshape((-1, self.num_heads, self.dim * 3 // self.num_heads))(qkv))
         q, k, v = tf.split(qkv, [self.dim // self.num_heads] * 3, axis=-1)
 
-        attn = tf.matmul(q, k, transpose_b=True) * self.scale
+        attn = tf.matmul(ops.cast(q, dtype), ops.cast(k, dtype), transpose_b=True) * ops.cast(self.scale, dtype)    # inputs의 dtype으로 casting - fp16 가속 설정
 
         if mask is not None:
-            mask = mask[:, None, None, :]
+            mask = ops.cast(mask[:, None, None, :], dtype) # inputs의 dtype으로 casting - fp16 가속 설정
+            attn = attn + (1.0 - mask) * ops.cast(-1e4, dtype)
 
         attn = keras.layers.Softmax(axis=-1)(attn, mask=mask)
-        attn = self.drop1(attn)
+        attn = ops.cast(self.drop1(attn), dtype)        # inputs의 dtype으로 casting - fp16 가속 설정
 
-        x = attn @ v
+        x = attn @ ops.cast(v, dtype)                   # inputs의 dtype으로 casting - fp16 가속 설정
         x = keras.layers.Reshape((-1, self.dim))(keras.layers.Permute((2, 1, 3))(x))
         x = self.proj(x)
-        return x
+        return ops.cast(x, dtype)                       # inputs의 dtype으로 casting - fp16 가속 설정
 
+    def build(self, input_shape):
+        self.qkv.build(input_shape)
+        self.drop1.build((None, self.num_heads, input_shape[1], input_shape[1]))
+        self.proj.build((None, input_shape[1], self.dim))
+        super().build(input_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "dim": self.dim,
+            "num_heads": self.num_heads,
+            "drop_rate": self.drop_rate
+        })
+        return config
 
 def TransformerBlock(dim=256, num_heads=4, expand=4, attn_dropout=0.2, drop_rate=0.2, activation='swish'):
     """
@@ -268,7 +340,7 @@ def TransformerBlock(dim=256, num_heads=4, expand=4, attn_dropout=0.2, drop_rate
     def apply(inputs):
         x = inputs
         x = keras.layers.BatchNormalization(momentum=0.95)(x)
-        x = MultiHeadSelfAttention(dim=dim,num_heads=num_heads,dropout=attn_dropout)(x)
+        x = MultiHeadSelfAttention(dim=dim, num_heads=num_heads, drop_rate=attn_dropout)(x)
         x = keras.layers.Dropout(drop_rate, noise_shape=(None,1,1))(x)
         x = keras.layers.Add()([inputs, x])
         attn_out = x
@@ -317,7 +389,7 @@ class TFLiteModel(tf.Module):
         outputs = self.islr_model(inputs, training=False)  # Call single model directly
         return {'outputs': outputs}
 
-def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES):
+def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES, training: bool=True):
     """
     Creates a model for sequence classification using a combination of convolutional layers and transformer blocks.
 
@@ -331,8 +403,7 @@ def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes
         A TensorFlow Keras Model object.
     """
     inp = keras.Input(shape=(max_len, dim)) # 기존 CHANNELS -> 유맵 차원 축소로 UMAP_OUTPUT_DIM
-    x = keras.layers.Masking(mask_value=PAD)(inp) #we don't need masking layer with inference
-    #x = inp # 추론 시에는 해당 부분을 주석 처리 하고, 학습 시에는 326(윗) 라인을 주석 처리해야 합니다.
+    x = keras.layers.Masking(mask_value=PAD)(inp) if training else inp # 학습 시 masking 활성화
     ksize = 17
     
     # Stem layers

@@ -70,7 +70,7 @@ ROWS_PER_FRAME = 137 # 제거 필요.
 CROP_LEN = 125
 MAX_LEN = 380 # CROP_LEN # 최대 프레임 길이 (매번 계산할 수 없으므로 수동 계산)
 NUM_CLASSES = len(KSL_SENTENCES)
-PAD = 0. #-100.
+PAD = -100.
 
 # Training parameters
 LEARNING_RATE = 0.0001
