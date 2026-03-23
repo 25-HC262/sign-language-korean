@@ -15,6 +15,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# PyTorch AMP (Automatic Mixed Precision) 가속화 설정
+# Keras의 mixed_precision 대신 사용. accelerate launch 실행 권장.
+scaler = torch.cuda.amp.GradScaler()
+
 from .config import CROP_LEN, NUM_CLASSES, UMAP_OUTPUT_DIM
 
 
