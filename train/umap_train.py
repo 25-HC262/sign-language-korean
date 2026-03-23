@@ -1,8 +1,8 @@
 import importlib
+importlib.import_module("src.config")
 import os
 import pickle
 
-importlib.import_module("src.config")
 import boto3
 import tensorflow as tf
 from google.cloud import storage

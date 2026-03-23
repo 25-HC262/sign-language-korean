@@ -3,7 +3,6 @@ importlib.import_module("src.config")
 
 from pathlib import Path
 
-import keras
 import tensorflow as tf
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
@@ -13,14 +12,17 @@ from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
 from src.backbone import get_model, TFLiteModel
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
-    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH, SELECTED_GM_TYPE, CHANNELS, \
-    NUM_NODES, STORAGE_MODE, VALIDATION_SPLIT, WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, \
-    WANDB_GM_TAGS, get_base_parser
+    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH, SELECTED_GM_TYPE, \
+    WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, \
+    WANDB_GM_TAGS, get_base_parser, VALIDATION_SPLIT, CHANNELS, NUM_NODES, STORAGE_MODE
 
 
 def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
                 max_sequence_len: int=CROP_LEN
                 ):
+    import keras
+    keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
+
     wandb.init(
         project=WANDB_GM_PROJECT,
         name=WANDB_GM_NAME,
@@ -127,8 +129,11 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     wandb.log_artifact(artifact)
 
     # 4. 경량화 모델 변환
+    keras.mixed_precision.set_global_policy("float32") # tflite casting 가능하도록
+    fp32_model = keras.models.load_model(LOCAL_PATHS["gm_final"])
+
     print("Converting to TFLite...")
-    tflite_model = TFLiteModel(model)  # Pass single model, not list
+    tflite_model = TFLiteModel(fp32_model)  # Pass single model, not list
 
     concrete_input_signature = tf.TensorSpec(
         shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
