@@ -18,6 +18,11 @@ from src.backbone import CausalDWConv1D, ECA, LateDropout, \
     MultiHeadSelfAttention
 from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN
 
+# 이전 버전 Keras로 저장된 모델 호환: Dense의 quantization_config 무시
+class _CompatDense(keras.layers.Dense):
+    def __init__(self, *args, quantization_config=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
 # 수어 레이블 정의
 LABEL_MAP = KSL_SENTENCES
 idx_to_label = {i: v for i, (k, v) in enumerate(LABEL_MAP.items())}
@@ -45,7 +50,8 @@ print("모델 로딩 중...")
 tf.get_logger().setLevel('ERROR')
 custom_objects = {
     'CausalDWConv1D': CausalDWConv1D, 'ECA': ECA,
-    'LateDropout': LateDropout, 'MultiHeadSelfAttention': MultiHeadSelfAttention
+    'LateDropout': LateDropout, 'MultiHeadSelfAttention': MultiHeadSelfAttention,
+    'Dense': _CompatDense,
 }
 try:
     model = keras.models.load_model(GM_LOAD_PATH, custom_objects=custom_objects)
