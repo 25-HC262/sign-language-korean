@@ -324,7 +324,7 @@ def get_gm_args(parent: argparse.ArgumentParser, rest: List[str]):
     # 2. main 사용 gloss 모델 선택 옵션 - args.gm에 저장
     parser.add_argument(
         "-g", "--gm", "--gloss_model",
-        default="sign_language_v1.h5"
+        default="gloss_transformer_2026_02_26_06-07.keras"
     )
     # 3. gloss 모델 종류 선택 옵션 - args.gmt 저장
     parser.add_argument(
