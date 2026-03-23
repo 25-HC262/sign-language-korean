@@ -9,8 +9,8 @@ TF Dataset → numpy → PyTorch DataLoader 브릿지로 연결.
     python -m train.mamba_train --epochs 300 --bs 32 --lr 0.0001 --d_model 32
 """
 
-import os
-os.environ["KERAS_BACKEND"] = "tensorflow"
+import importlib
+importlib.import_module("src.config")
 
 import argparse
 from pathlib import Path
@@ -20,8 +20,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import wandb
+from accelerate import Accelerator
 
-from src.mamba_backbone import get_mamba_model
+from src.mamba_backbone import get_mamba_model, scaler
 from src.config import (
     CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES,
     VALIDATION_SPLIT, WEIGHT_DECAY, UMAP_OUTPUT_DIM, UMAP_LOAD_PATH,
@@ -74,11 +75,9 @@ def train_model(
     n_stages: int = 2,
     d_state: int = 16,
 ):
-    device = (
-        torch.device("cuda") if torch.cuda.is_available()
-        else torch.device("mps") if torch.backends.mps.is_available()
-        else torch.device("cpu")
-    )
+    # 1. Accelerator 객체 초기화
+    accelerator = Accelerator()
+    device = accelerator.device
     print(f"사용 디바이스: {device}")
 
     # W&B 초기화
@@ -130,7 +129,7 @@ def train_model(
         n_stages=n_stages,
         d_state=d_state,
         num_classes=NUM_CLASSES,
-    ).to(device)
+    )
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"파라미터 수: {n_params:,}")
@@ -141,6 +140,11 @@ def train_model(
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6
+    )
+
+    # 2. 모델, 옵티마이저, 데이터 로더를 prepare로 감쌈
+    model, optimizer, train_loader = accelerator.prepare(
+        model, optimizer, train_loader
     )
 
     # ── 4. 학습 루프 ──
@@ -157,11 +161,13 @@ def train_model(
         model.train()
         train_loss, train_correct, train_total = 0.0, 0, 0
         for x, y in train_loader:
-            x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
-            logits = model(x)
-            loss = criterion(logits, y)
-            loss.backward()
+            # 자동 혼합 정밀도 구간 설정 (FP16 계산)
+            with torch.cuda.amp.autocast():
+                logits = model(x)
+                loss = criterion(logits, y)
+            # 3. loss.backward()를 accelerator.backward(loss)로 변경
+            accelerator.backward(loss)
             optimizer.step()
 
             train_loss += loss.item() * len(y)
@@ -209,7 +215,7 @@ def train_model(
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
-            torch.save(model.state_dict(), ckpt_path)
+            torch.save(accelerator.unwrap_model(model).state_dict(), ckpt_path)
             print(f"  → 체크포인트 저장 (val_loss={val_loss:.4f})")
         else:
             patience_counter += 1
@@ -245,14 +251,14 @@ def train_model(
 
     # 6-1. 전체 모델 (.pth)
     final_path = model_dir / f"{stem}.pth"
-    torch.save(model.state_dict(), final_path)
+    torch.save(accelerator.unwrap_model(model).state_dict(), final_path)
     print(f"최종 모델 저장: {final_path}")
 
     # 6-2. 경량화 모델
     #   1순위: Dynamic Quantization int8 (Linux/FBGEMM, macOS/QNNPACK)
     #   2순위: float16 half-precision (int8 엔진 미지원 환경 폴백, ~50% 크기 감소)
     print("\n경량화 모델 생성 중...")
-    cpu_model = model.cpu().eval()
+    cpu_model = accelerator.unwrap_model(model).cpu().eval()
     quantized_path = model_dir / f"{stem}.quantized.pt"
 
     try:
