@@ -265,6 +265,10 @@ class MultiHeadSelfAttention(keras.layers.Layer):
         Output tensor after applying the multi-head self-attention mechanism.
     """
     def __init__(self, dim=256, num_heads=4, drop_rate=0.0, **kwargs):
+        # 이전 버전 모델 호환: 'dropout' 키로 저장된 경우 처리
+        dropout = kwargs.pop('dropout', None)
+        if dropout is not None:
+            drop_rate = dropout
         super().__init__(**kwargs)
         self.dim = dim
         self.scale = self.dim ** -0.5
