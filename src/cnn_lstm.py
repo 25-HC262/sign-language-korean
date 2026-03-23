@@ -1,6 +1,6 @@
 # src/cnn_lstm.py
-import os
-os.environ["KERAS_BACKEND"] = "tensorflow"
+import importlib
+importlib.import_module("src.config")
 import keras
 from .config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
 
