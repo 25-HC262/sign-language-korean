@@ -335,8 +335,7 @@ class TrainDataLoader:
             self.s3_client = boto3.client('s3')
         if is_gcs:
             parsed_path = urlparse(path)
-            self.gcs_bucket_name = parsed_path.netloc
-            self.gcs_prefix = parsed_path.path.lstrip('/')
+            self.gcs_bucket_name = str(parsed_path.netloc)
             self.gcs_client = storage.Client()
             self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
 
@@ -352,7 +351,7 @@ class TrainDataLoader:
                         direction_dir = f"{self.s3_prefix}/{folder_name}/{folder_name}_{direction}"
                         person_paths = self._list_s3_subdirs(direction_dir)
                     elif is_gcs:
-                        direction_dir = f"{self.gcs_prefix}/{folder_name}/{folder_name}_{direction}/"
+                        direction_dir = f"{folder_name}/{folder_name}_{direction}/"
                         person_paths = self._list_gcs_subdirs(direction_dir)
                     else:
                         base_path = Path(path)
