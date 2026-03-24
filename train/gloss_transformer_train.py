@@ -3,14 +3,13 @@ importlib.import_module("src.config")
 
 from pathlib import Path
 
-import tensorflow as tf
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
 
 # 커스텀
 from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
-from src.backbone import get_model, TFLiteModel
+from src.backbone import get_model
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH, SELECTED_GM_TYPE, \
     WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, \
@@ -172,6 +171,7 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     print("Training completed!")
 
     # 5. 모델 평가
+    print(f"Test dataset size: {len(list(test_dataset)) if hasattr(test_dataset, '__len__') else 'Unknown'}")
     eval_results = model.evaluate(test_dataset, return_dict=True)
     print("Model Test Results: ")
     print(*(f"  > {k}: {v:.3f}" for k, v in eval_results.items()), sep='\n')

@@ -168,7 +168,35 @@ class DataSetter:
 
         self.final_datasets = get_or_create_datasets_from_path() # train, val, test
 
+    def print_dataset_info(self, datasets: Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], Tuple[np.ndarray, np.ndarray, np.ndarray]], title="Dataset Info"):
+        """
+        Dataset(TF) 또는 Numpy 배열의 정보를 통합하여 출력하는 헬퍼 함수
+        """
+        print(f"\n{'='*20} {title} {'='*20}")
+        names = ["Train", "Val", "Test"]
+
+        for name, ds in zip(names, datasets):
+            # 1. Numpy 배열인 경우
+            if isinstance(ds, np.ndarray):
+                print(f"[*] {name:5}: Type=Numpy, Shape={ds.shape}, Dtype={ds.dtype}")
+
+            # 2. tf.data.Dataset인 경우
+            elif isinstance(ds, tf.data.Dataset):
+                # 개수 확인 (알 수 없는 경우 -2 반환)
+                count = ds.cardinality().numpy()
+                count_str = count if count >= 0 else "Unknown"
+
+                # 형상 확인 (하나의 배치/요소를 꺼내서 확인)
+                try:
+                    # element_spec을 통해 전체적인 구조 확인 가능
+                    spec = ds.element_spec
+                    print(f"[*] {name:5}: Type=TF.Dataset, Count={count_str}, Spec={spec}")
+                except Exception:
+                    print(f"[*] {name:5}: Type=TF.Dataset, Count={count_str}")
+        print(f"{'='*50}\n")
+
     def get_datasets(self) -> Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        self.print_dataset_info(self.final_datasets)
         return self.final_datasets
 
 class TrainDataLoader:

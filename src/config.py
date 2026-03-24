@@ -264,7 +264,7 @@ def get_base_parser():
     parser.add_argument(
         "-u", "--upload",
         choices=["L", "S", "G"],
-        default="L",
+        default="G",
         help="Storage type: L(Local), S(S3), G(GCS)"
     )
     # 3. keypoint 차원수 선택 옵션 - args.kpt_dim에 저장
