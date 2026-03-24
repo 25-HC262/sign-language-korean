@@ -19,7 +19,8 @@ from tqdm import tqdm
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
     BATCH_SIZE, UMAP_LOAD_PATH, TEST_RATE, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
     L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
-    KEYPOINT_DIM, DATA_TYPE, DataDim, DataType, Trainer
+    KEYPOINT_DIM, DATA_TYPE, DataDim, DataType, Trainer, LOAD_PREPROCESSED_DATA
+
 
 class DataSetter:
     def __init__(self, umap_path: str=None, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
@@ -136,6 +137,9 @@ class DataSetter:
                     tf.data.Dataset.save(val_ds, str(val_path))
                     tf.data.Dataset.save(test_ds, str(test_path))
 
+                    print(f"[*] 생성된 데이터셋을 클라우드로 업로드합니다... (Path: {dir_path.name})")
+                    upload_file(local_root_path=str(dir_path), upload_path=LOAD_PREPROCESSED_DATA, file_name=None)
+
                     # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
                     return (
                         seq_and_batch_finalize(train_ds),
@@ -156,7 +160,10 @@ class DataSetter:
                     np.save(val_file, val_ds)
                     np.save(test_file, test_ds)
 
-                    # [리턴]
+                    print(f"[*] 생성된 데이터셋을 클라우드로 업로드합니다... (Path: {dir_path.name})")
+                    upload_file(local_root_path=str(dir_path), upload_path=LOAD_PREPROCESSED_DATA, file_name=None)
+
+                # [리턴]
                     return train_ds, val_ds, test_ds
 
             except Exception as e:
@@ -557,6 +564,7 @@ class TrainDataLoader:
 
 # --- 업로드 인터페이스 함수 ---
 def upload_file(local_root_path: str, upload_path: str, file_name: str = None):
+    print(f"[*] Current UPLOAD_MODE: {UPLOAD_MODE}")
     if UPLOAD_MODE == 'S':
         upload_file_to_s3(local_root_path=local_root_path, s3_path=upload_path, file_name=file_name)
     elif UPLOAD_MODE == 'G':
@@ -601,7 +609,8 @@ def upload_file_to_s3(local_root_path: str, s3_path: str, file_name: str = None)
 
 #  --- GCP upload method ---
 def upload_file_to_gcs(local_root_path: str, gcs_path: str, file_name: str = None):
-    local_root = Path(local_root_path).expanduser()
+    print(f"DEBUG: Function called!")
+    local_path_obj = Path(local_root_path).expanduser()
     parsed_gcs_path = urlparse(gcs_path)
     bucket_name = parsed_gcs_path.netloc
     save_prefix = parsed_gcs_path.path.lstrip('/')
@@ -610,18 +619,22 @@ def upload_file_to_gcs(local_root_path: str, gcs_path: str, file_name: str = Non
     bucket = client.bucket(bucket_name)
 
     files_to_upload = []
-    if file_name is None:
-        print(f"Preparing to upload directory {local_root} to gs://{bucket_name}/{save_prefix}")
-        for local_path in local_root.rglob('*'):
-            if local_path.is_file():
-                rel_path = local_path.relative_to(local_root).as_posix()
-                gcs_key = f"{save_prefix}/{rel_path}"
-                files_to_upload.append((local_path, gcs_key))
+    # 1. 디렉터리 전체 업로드 (폴더구조 유지)
+    if file_name is None and local_path_obj.is_dir():
+        folder_name = local_path_obj.name
+        print(f"Preparing to upload directory {folder_name} to gs://{bucket_name}/{save_prefix}/{folder_name}")
+        print(f"{str(local_path_obj)} 내 파일 개수: {len(list(local_path_obj.rglob('*')))}")
+        for file in local_path_obj.rglob('*'):
+            if file.is_file():
+                rel_path = file.relative_to(local_path_obj).as_posix()
+                gcs_key = f"{save_prefix}/{folder_name}/{rel_path}"
+                files_to_upload.append((file, gcs_key))
+    # 2. 단일 파일 업로드
     else:
-        local_file = local_root / file_name
+        local_file = local_path_obj / file_name if file_name else local_path_obj
         print(f"Preparing to upload file {local_file} to gs://{bucket_name}/{save_prefix}")
         if local_file.is_file():
-            gcs_key = f"{save_prefix}/{file_name}"
+            gcs_key = f"{save_prefix}/{file_name if file_name else local_file.name}"
             files_to_upload.append((local_file, gcs_key))
 
     for local_file_path, gcs_key in files_to_upload:
@@ -630,7 +643,7 @@ def upload_file_to_gcs(local_root_path: str, gcs_path: str, file_name: str = Non
             blob.upload_from_filename(str(local_file_path))
             print(f"  Uploaded {local_file_path} to gs://{bucket_name}/{gcs_key}")
         except Exception as e:
-            print(f"  Error uploading {local_file_path}: {e}")
+            print(f"  Error uploading {local_file_path.name}: {e}")
 
 # 전처리 및 키포인트 변환 함수
 def mediapipe_hands_to_openpose_format(mp_hand_landmarks, image_width, image_height):
