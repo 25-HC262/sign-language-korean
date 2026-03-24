@@ -93,6 +93,7 @@ class DataSetter:
         loader_args = {
             "data_path": L_DATA,
             "trainer": trainer,
+            "test_data_path": pc.LOAD_TEST,
             "dim_reduction": dim_reduction,
             "umap_path": umap_path
         }
