@@ -3,7 +3,7 @@ import importlib
 
 from optuna_integration import KerasPruningCallback
 
-importlib.import_module("src.config")
+importlib.import_module("src.tf_keras_config")
 
 import keras
 keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
@@ -12,9 +12,9 @@ import optuna
 from optuna.storages import RDBStorage
 
 from src.config import OPTUNA_TRIALS_PATH, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
-    OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM, \
-    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, UMAP_LOAD_PATH, get_base_parser, L_PARAMS, SELECTED_GM_TYPE, \
-    LOAD_TOOLS
+    OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, UMAP_OUTPUT_DIM, \
+    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, get_base_parser, L_PARAMS, \
+    PathConfig
 
 from load_data.create_dataset import DataSetter, upload_file
 from src.backbone import get_model
@@ -30,7 +30,7 @@ def objective(trial):
 
     # 2. 데이터 불러오기
     train_dataset, val_dataset, _ = DataSetter(
-        umap_path=UMAP_LOAD_PATH,
+        umap_path=pc.UMAP_LOAD_PATH,
         max_seq_len=sequence_length,
         batch_size=batch_size,
         dim_reduction=True
@@ -56,14 +56,14 @@ def objective(trial):
     print("Model compile finished.")
 
     # 4. 모델 학습
-    history = model.fit(
+    model.fit(
         small_train_dataset,
         validation_data=small_val_dataset,
         epochs=num_train_epochs,
         verbose=1,
         callbacks=[
             keras.callbacks.ModelCheckpoint(
-                LOCAL_PATHS["optuna_gm_ckpt"],
+                pc.LOCAL_PATHS["optuna_gm_ckpt"],
                 monitor='val_loss',
                 save_best_only=True,
                 save_weights_only=False,
@@ -124,14 +124,16 @@ if __name__=="__main__":
             type=int,
             default=N_TRIALS
         )
-        args = parser.parse_args()
-        print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
-        return args
+        o_args = parser.parse_args()
+        print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(o_args).items()), sep='\n')
+        return o_args
     args = get_optuna_config()
     # 사용자 옵션
     study_name = args.name
     subset_ratio = args.sr
     n_trials = args.nt
+
+    pc = PathConfig(args)
 
     # 2. optuna 세팅
     storage = RDBStorage(url=OPTUNA_TRIALS_PATH)
@@ -153,11 +155,11 @@ if __name__=="__main__":
     import json, datetime
     date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
     best_num_train = study.best_trial.user_attrs.get("num_train", "N/A") # 사용 데이터 개수
-    BEST_PARAMS_PATH = L_PARAMS / f"{SELECTED_GM_TYPE}-class={NUM_CLASSES}-data={best_num_train}-trial={n_trials}-{date_idx}.json"
+    BEST_PARAMS_PATH = L_PARAMS / f"{pc.SELECTED_GM_TYPE}-class={NUM_CLASSES}-data={best_num_train}-trial={n_trials}-{date_idx}.json"
     with open(BEST_PARAMS_PATH, "w") as f:
         json.dump(study.best_params, f)
 
-    upload_file(local_root_path=str(BEST_PARAMS_PATH.parent), upload_path=LOAD_TOOLS, file_name=str(BEST_PARAMS_PATH.name))
+    upload_file(local_root_path=str(BEST_PARAMS_PATH.parent), upload_path=pc.LOAD_TOOLS, file_name=str(BEST_PARAMS_PATH.name))
 
     # 4. 성적 순 상위 30%의 정확도 & 소요 시간 출력
     df = study.trials_dataframe()
@@ -177,7 +179,7 @@ if __name__=="__main__":
     # 4. 분석 결과 도출
     # 4-1. 맵 설정 (함수 객체 자체를 저장하여 루프에서 실행)
     # (함수, 제목, 저장파일명)
-    base_filename = f"{SELECTED_GM_TYPE}-{study_name}-{date_idx}-"
+    base_filename = f"{pc.SELECTED_GM_TYPE}-{study_name}-{date_idx}-"
     main_info = f"Study: {study_name} | Best: {study.best_value:.4f} | Trials: {n_trials}"
     sub_info = f"N_Train: {best_num_train} | Classes: {NUM_CLASSES}"
     opt_map = {
@@ -228,7 +230,7 @@ if __name__=="__main__":
             plt.close('all')
 
             # 업로드
-            upload_file(local_root_path=str(save_path.parent), upload_path=LOAD_TOOLS, file_name=str(save_path.name))
+            upload_file(local_root_path=str(save_path.parent), upload_path=pc.LOAD_TOOLS, file_name=str(save_path.name))
 
         except Exception as e:
             print(f"    > {graph_type_name} 플롯 생성 실패: {e}")

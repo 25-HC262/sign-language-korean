@@ -1,5 +1,5 @@
 import importlib
-importlib.import_module("src.config")
+importlib.import_module("src.tf_keras_config")
 import json
 import os
 import random
@@ -17,9 +17,10 @@ from google.cloud import storage
 from tqdm import tqdm
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
-    BATCH_SIZE, UMAP_LOAD_PATH, TEST_RATE, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
-    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
-    KEYPOINT_DIM, DATA_TYPE, DataDim, DataType, Trainer, LOAD_PREPROCESSED_DATA
+    BATCH_SIZE, TEST_RATE, UMAP_OUTPUT_DIM, NUM_CLASSES, \
+    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
+    DATA_TYPE, DataDim, DataType, Trainer, get_config_args, PathConfig, L_TEST, \
+    UMAP_LOAD_PATH
 
 
 class DataSetter:
@@ -35,6 +36,9 @@ class DataSetter:
         :param trainer:
         :param max_seq_len:
         """
+        args = get_config_args()
+        pc = PathConfig(args)
+
         self.max_seq_len = max_seq_len
         self.batch_size = batch_size
 
@@ -71,7 +75,7 @@ class DataSetter:
             return batch_finalize(ds=ds, target_batch_size=self.batch_size)
 
         data_type = to_enum(DataType, DATA_TYPE)
-        data_dim = to_enum(DataDim, KEYPOINT_DIM)
+        data_dim = to_enum(DataDim, pc.KEYPOINT_DIM)
         self.trainer = to_enum(Trainer, trainer)
 
         # 경로 설정
@@ -138,7 +142,7 @@ class DataSetter:
                     tf.data.Dataset.save(test_ds, str(test_path))
 
                     print(f"[*] 생성된 데이터셋을 클라우드로 업로드합니다... (Path: {dir_path.name})")
-                    upload_file(local_root_path=str(dir_path), upload_path=LOAD_PREPROCESSED_DATA, file_name=None)
+                    upload_file(local_root_path=str(dir_path), upload_path=pc.LOAD_PREPROCESSED_DATA, file_name=None)
 
                     # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
                     return (
@@ -161,7 +165,7 @@ class DataSetter:
                     np.save(test_file, test_ds)
 
                     print(f"[*] 생성된 데이터셋을 클라우드로 업로드합니다... (Path: {dir_path.name})")
-                    upload_file(local_root_path=str(dir_path), upload_path=LOAD_PREPROCESSED_DATA, file_name=None)
+                    upload_file(local_root_path=str(dir_path), upload_path=pc.LOAD_PREPROCESSED_DATA, file_name=None)
 
                 # [리턴]
                     return train_ds, val_ds, test_ds
@@ -207,7 +211,7 @@ class DataSetter:
         return self.final_datasets
 
 class TrainDataLoader:
-    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=None, umap_data_num=None, test_umap_data_num=None, dim_reduction=False):
+    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=L_TEST, umap_path=None, umap_data_num=None, test_umap_data_num=None, dim_reduction=False):
         self.data_path = data_path
         self.test_data_path = test_data_path
         self.umap_path = umap_path
@@ -563,11 +567,10 @@ class TrainDataLoader:
         return sorted([f"gs://{self.gcs_bucket_name}/{blob.name}" for blob in blobs if blob.name.endswith('_keypoints.json')])
 
 # --- 업로드 인터페이스 함수 ---
-def upload_file(local_root_path: str, upload_path: str, file_name: str = None):
-    print(f"[*] Current UPLOAD_MODE: {UPLOAD_MODE}")
-    if UPLOAD_MODE == 'S':
+def upload_file(local_root_path: str, upload_path: str, file_name: str = None, upload_mode: str='G'):
+    if upload_mode == 'S':
         upload_file_to_s3(local_root_path=local_root_path, s3_path=upload_path, file_name=file_name)
-    elif UPLOAD_MODE == 'G':
+    elif upload_mode == 'G':
         upload_file_to_gcs(local_root_path=local_root_path, gcs_path=upload_path, file_name=file_name)
     # UPLOAD_MODE == 'L'인 경우 아무것도 하지 않음.
 

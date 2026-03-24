@@ -1,5 +1,5 @@
 import importlib
-importlib.import_module("src.config")
+importlib.import_module("src.tf_keras_config")
 import tensorflow as tf
 from pathlib import Path
 import wandb
@@ -10,9 +10,8 @@ keras.mixed_precision.set_global_policy("mixed_float16")
 # 커스텀
 from src.cnn_lstm import get_model
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
-    NUM_NODES, CHANNELS, VALIDATION_SPLIT, STORAGE_MODE, SELECTED_GM_TYPE, \
-    WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, WANDB_GM_TAGS, \
-    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH, get_base_parser
+    NUM_NODES, CHANNELS, VALIDATION_SPLIT, \
+    UMAP_OUTPUT_DIM, WEIGHT_DECAY, get_base_parser, PathConfig
 from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
 
@@ -27,10 +26,10 @@ def train_model(learning_rate: float = LEARNING_RATE,
                 dropout: float = 0.3):
 
     wandb.init(
-        project=WANDB_GM_PROJECT,
-        name=WANDB_GM_NAME,
-        group=WANDB_GM_GROUP,
-        tags=WANDB_GM_TAGS,
+        project=pc.WANDB_GM_PROJECT,
+        name=pc.WANDB_GM_NAME,
+        group=pc.WANDB_GM_GROUP,
+        tags=pc.WANDB_GM_TAGS,
         job_type="train",
         config={
             # Training
@@ -40,7 +39,7 @@ def train_model(learning_rate: float = LEARNING_RATE,
             "validation_split": VALIDATION_SPLIT,
             "optimizer": "adamw",
             # Model architecture
-            "model_type": SELECTED_GM_TYPE,
+            "model_type": pc.SELECTED_GM_TYPE,
             "max_len": max_sequence_len,
             "input_channels": CHANNELS,
             "umap_output_dim": UMAP_OUTPUT_DIM,
@@ -56,13 +55,13 @@ def train_model(learning_rate: float = LEARNING_RATE,
             "lr_reduce_factor": 0.5,
             "min_lr": 1e-6,
             # Environment
-            "storage_mode": STORAGE_MODE,
+            "storage_mode": pc.STORAGE_MODE,
         }
     )
 
     print("\nLoading training data...")
     train_dataset, val_dataset, test_dataset = DataSetter(
-        umap_path=UMAP_LOAD_PATH,
+        umap_path=pc.UMAP_LOAD_PATH,
         max_seq_len=max_sequence_len,
         batch_size=batch_size,
         dim_reduction=True
@@ -72,7 +71,7 @@ def train_model(learning_rate: float = LEARNING_RATE,
     print("\nCreating model...")
     model = get_model(
         max_len=max_sequence_len,
-        dim=UMAP_OUTPUT_DIM,
+        dim=pc.UMAP_OUTPUT_DIM,
         num_classes=NUM_CLASSES,
         cnn_channels=cnn_channels,
         lstm_units=lstm_units,
@@ -104,7 +103,7 @@ def train_model(learning_rate: float = LEARNING_RATE,
         verbose=1,
         callbacks=[
             keras.callbacks.ModelCheckpoint(
-                LOCAL_PATHS["gm_ckpt"],
+                pc.LOCAL_PATHS["gm_ckpt"],
                 monitor=monitor_metric,
                 save_best_only=True,
                 save_weights_only=False,
@@ -129,26 +128,26 @@ def train_model(learning_rate: float = LEARNING_RATE,
 
     # 3. 모델 저장
     print("\nSaving model...")
-    model.save(LOCAL_PATHS["gm_final"])
+    model.save(pc.LOCAL_PATHS["gm_final"])
     upload_file(
-        local_root_path=str(Path(LOCAL_PATHS["gm_final"]).parent),
-        upload_path=LOAD_GM,
-        file_name=str(Path(LOCAL_PATHS["gm_final"]).name)
+        local_root_path=str(Path(pc.LOCAL_PATHS["gm_final"]).parent),
+        upload_path=pc.LOAD_GM,
+        file_name=str(Path(pc.LOCAL_PATHS["gm_final"]).name)
     )
 
     artifact = wandb.Artifact(
-        name=f"gloss-{SELECTED_GM_TYPE}-model",
+        name=f"gloss-{pc.SELECTED_GM_TYPE}-model",
         type="model",
-        description=f"Trained gloss {SELECTED_GM_TYPE} model",
+        description=f"Trained gloss {pc.SELECTED_GM_TYPE} model",
         metadata=dict(wandb.config),
     )
-    artifact.add_file(LOCAL_PATHS["gm_final"])
+    artifact.add_file(pc.LOCAL_PATHS["gm_final"])
     wandb.log_artifact(artifact)
 
     # 4. TFLite 변환
     print("Converting to TFLite...")
     concrete_input_signature = tf.TensorSpec(
-        shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],
+        shape=[1, max_sequence_len, pc.UMAP_OUTPUT_DIM],
         dtype=tf.float32
     )
 
@@ -166,22 +165,22 @@ def train_model(learning_rate: float = LEARNING_RATE,
 
     try:
         tflite_model = converter.convert()
-        with open(LOCAL_PATHS["gm_tflite"], 'wb') as f:
+        with open(pc.LOCAL_PATHS["gm_tflite"], 'wb') as f:
             f.write(tflite_model)
         print("TFLite model saved successfully!")
         upload_file(
-            local_root_path=str(Path(LOCAL_PATHS["gm_tflite"]).parent),
-            upload_path=LOAD_GM,
-            file_name=str(Path(LOCAL_PATHS["gm_tflite"]).name)
+            local_root_path=str(Path(pc.LOCAL_PATHS["gm_tflite"]).parent),
+            upload_path=pc.LOAD_GM,
+            file_name=str(Path(pc.LOCAL_PATHS["gm_tflite"]).name)
         )
 
         tflite_artifact = wandb.Artifact(
-            name=f"gloss-{SELECTED_GM_TYPE}-tflite",
+            name=f"gloss-{pc.SELECTED_GM_TYPE}-tflite",
             type="model",
-            description=f"TFLite-converted gloss {SELECTED_GM_TYPE} model",
+            description=f"TFLite-converted gloss {pc.SELECTED_GM_TYPE} model",
             metadata=dict(wandb.config),
         )
-        tflite_artifact.add_file(LOCAL_PATHS["gm_tflite"])
+        tflite_artifact.add_file(pc.LOCAL_PATHS["gm_tflite"])
         wandb.log_artifact(tflite_artifact)
     except Exception as e:
         print(f"Warning: TFLite conversion failed: {e}")
@@ -226,6 +225,7 @@ def get_model_args():
 
 if __name__ == "__main__":
     args = get_model_args()
+    pc = PathConfig(args)
 
     history = train_model(
         learning_rate=args.lr,

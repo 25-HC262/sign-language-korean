@@ -1,10 +1,10 @@
 # src/backbone.py
 import importlib
-importlib.import_module("src.config")
+importlib.import_module("src.tf_keras_config")
 import itertools
 
 import keras
-keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
+# keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
 import tensorflow as tf
 
 from src.config import CROP_LEN, NUM_CLASSES, UMAP_OUTPUT_DIM, PAD

@@ -1,5 +1,5 @@
 import importlib
-importlib.import_module("src.config")
+importlib.import_module("src.tf_keras_config")
 import os
 from pathlib import Path
 import tensorflow as tf
@@ -8,7 +8,7 @@ import numpy as np
 from load_data.create_dataset import DataSetter
 # custom layers
 from src.backbone import get_model
-from src.config import UMAP_OUTPUT_DIM, NUM_CLASSES, UMAP_LOAD_PATH, L_PARAMS, L_GM
+from src.config import UMAP_OUTPUT_DIM, NUM_CLASSES, L_PARAMS, L_GM, get_config_args, PathConfig
 
 
 def compare_tflite_with_keras(
@@ -17,7 +17,7 @@ def compare_tflite_with_keras(
 ):
     # 1. dataset 로드
     _, _, test_ds = DataSetter(
-        umap_path=UMAP_LOAD_PATH,
+        umap_path=pc.UMAP_LOAD_PATH,
         max_seq_len=max_seq_len,
         batch_size=batch_size,
         dim_reduction=True
@@ -93,7 +93,7 @@ def evaluating_model_with_weights(
 ):
     # 1. dataset 로드
     _, _, test_ds = DataSetter(
-        umap_path=UMAP_LOAD_PATH,
+        umap_path=pc.UMAP_LOAD_PATH,
         max_seq_len=max_seq_len,
         batch_size=batch_size,
         dim_reduction=True
@@ -141,6 +141,10 @@ def evaluating_model_with_weights(
 if __name__=="__main__":
     best_param_file_names = ["transformer-class=33-data=633-trial=10-2026_03_23_04-41.json"]
     best_param_files = [(a, Path(L_PARAMS) / a) for a in best_param_file_names]
+
+    args = get_config_args()
+    pc = PathConfig(args)
+
     for n, f in best_param_files:
         import json
 
