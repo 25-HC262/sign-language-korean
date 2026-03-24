@@ -5,14 +5,13 @@ import itertools
 
 import keras
 keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
-from keras import ops
 import tensorflow as tf
 
 from src.config import CROP_LEN, NUM_CLASSES, UMAP_OUTPUT_DIM, PAD
 
 MBBLOCK_COUNTER = itertools.count(1)
 
-@keras.saving.register_keras_serializable()
+# @keras.saving.register_keras_serializable()
 class ECA(keras.layers.Layer):
     """
     Efficient Channel Attention layer.
@@ -47,20 +46,20 @@ class ECA(keras.layers.Layer):
         nn = tf.squeeze(nn, -1)
         nn = tf.nn.sigmoid(nn)
         nn = nn[:,None,:]
-        nn = ops.cast(nn, inputs.dtype) # inputs의 dtype으로 nn casting - fp16 가속 설정
+        # nn = ops.cast(nn, inputs.dtype) # inputs의 dtype으로 nn casting - fp16 가속 설정
         return inputs * nn
 
-    def build(self, input_shape): # self.conv를 구성함.
-        # GAP 이후 shape는 (Batch, Channels, 1)이 됨
-        self.conv.build((None, input_shape[-1], 1))
-        super().build(input_shape)
+    # def build(self, input_shape): # self.conv를 구성함.
+    #     # GAP 이후 shape는 (Batch, Channels, 1)이 됨
+    #     self.conv.build((None, input_shape[-1], 1))
+    #     super().build(input_shape)
+    #
+    # def get_config(self):
+    #     config = super().get_config()
+    #     config.update({"kernel_size": self.kernel_size})
+    #     return config
 
-    def get_config(self):
-        config = super().get_config()
-        config.update({"kernel_size": self.kernel_size})
-        return config
-
-@keras.saving.register_keras_serializable()
+# @keras.saving.register_keras_serializable()
 class LateDropout(keras.layers.Layer):
     """
     Layer that applies dropout after a certain training step.
@@ -82,7 +81,7 @@ class LateDropout(keras.layers.Layer):
         self.dropout = keras.layers.Dropout(rate, noise_shape=noise_shape)
 
     def build(self, input_shape):
-        self.dropout.build(input_shape) # 자식 드롭아웃 빌드
+        # self.dropout.build(input_shape) # 자식 드롭아웃 빌드
         agg = tf.VariableAggregation.ONLY_FIRST_REPLICA
         self._train_counter = tf.Variable(0, dtype="int64", aggregation=agg, trainable=False)
         super().build(input_shape)
@@ -98,26 +97,27 @@ class LateDropout(keras.layers.Layer):
         Returns:
             Output tensor after applying dropout.
         """
-        dtype = inputs.dtype
+        # dtype = inputs.dtype
         x = tf.cond(
             self._train_counter < self.start_step,
             lambda:inputs,
-            lambda: ops.cast(self.dropout(inputs, training=training), dtype)        # inputs의 dtype으로 casting - fp16 가속 설정
+            # lambda: ops.cast(self.dropout(inputs, training=training), dtype)        # inputs의 dtype으로 casting - fp16 가속 설정
+            lambda: self.dropout(inputs, training=training)
         )
         if training:
             self._train_counter.assign_add(1)
-        return ops.cast(x, dtype)                                                        # inputs의 dtype으로 casting - fp16 가속 설정
+        return x # ops.cast(x, dtype)                                                        # inputs의 dtype으로 casting - fp16 가속 설정
 
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "rate": self.rate,
-            "start_step": self.start_step,
-            "noise_shape": self.noise_shape
-        })
-        return config
+    # def get_config(self):
+    #     config = super().get_config()
+    #     config.update({
+    #         "rate": self.rate,
+    #         "start_step": self.start_step,
+    #         "noise_shape": self.noise_shape
+    #     })
+    #     return config
 
-@keras.saving.register_keras_serializable()
+# @keras.saving.register_keras_serializable()
 class CausalDWConv1D(keras.layers.Layer):
     """
     Causal Dilated Depthwise Convolutional 1D layer.
@@ -169,22 +169,22 @@ class CausalDWConv1D(keras.layers.Layer):
         """
         x = self.causal_pad(inputs)
         x = self.dw_conv(x)
-        return ops.cast(x, inputs.dtype) # inputs의 dtype으로 casting - fp16 가속 설정
+        return x # ops.cast(x, inputs.dtype) # inputs의 dtype으로 casting - fp16 가속 설정
 
-    def build(self, input_shape):
-        pad_len = self.dilation_rate*(self.kernel_size-1)
-        self.dw_conv.build((None, input_shape[1] + pad_len, input_shape[2]))
-        super().build(input_shape)
+    # def build(self, input_shape):
+    #     pad_len = self.dilation_rate*(self.kernel_size-1)
+    #     self.dw_conv.build((None, input_shape[1] + pad_len, input_shape[2]))
+    #     super().build(input_shape)
 
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "kernel_size": self.kernel_size,
-            "dilation_rate": self.dilation_rate,
-            "use_bias": self.use_bias,
-            "depthwise_initializer": self.depthwise_initializer,
-        })
-        return config
+    # def get_config(self):
+    #     config = super().get_config()
+    #     config.update({
+    #         "kernel_size": self.kernel_size,
+    #         "dilation_rate": self.dilation_rate,
+    #         "use_bias": self.use_bias,
+    #         "depthwise_initializer": self.depthwise_initializer,
+    #     })
+    #     return config
 
 def Conv1DBlock(channel_size,
                 kernel_size,
@@ -251,7 +251,7 @@ name=None):
 
     return apply
 
-@keras.saving.register_keras_serializable()
+# @keras.saving.register_keras_serializable()
 class MultiHeadSelfAttention(keras.layers.Layer):
     """
     Multi-Head Self-Attention layer.
@@ -291,40 +291,44 @@ class MultiHeadSelfAttention(keras.layers.Layer):
         Returns:
             Output tensor after applying the multi-head self-attention mechanism.
         """
-        dtype = inputs.dtype # 입력 타입 고정
+        # dtype = inputs.dtype # 입력 타입 고정
 
         qkv = self.qkv(inputs)
         qkv = keras.layers.Permute((2, 1, 3))(keras.layers.Reshape((-1, self.num_heads, self.dim * 3 // self.num_heads))(qkv))
         q, k, v = tf.split(qkv, [self.dim // self.num_heads] * 3, axis=-1)
 
-        attn = tf.matmul(ops.cast(q, dtype), ops.cast(k, dtype), transpose_b=True) * ops.cast(self.scale, dtype)    # inputs의 dtype으로 casting - fp16 가속 설정
+        # attn = tf.matmul(ops.cast(q, dtype), ops.cast(k, dtype), transpose_b=True) * ops.cast(self.scale, dtype)    # inputs의 dtype으로 casting - fp16 가속 설정
+        attn = tf.matmul(q, k, transpose_b=True) * self.scale
 
         if mask is not None:
-            mask = ops.cast(mask[:, None, None, :], dtype) # inputs의 dtype으로 casting - fp16 가속 설정
-            attn = attn + (1.0 - mask) * ops.cast(-1e4, dtype)
+            # mask = ops.cast(mask[:, None, None, :], dtype) # inputs의 dtype으로 casting - fp16 가속 설정
+            mask = mask[:, None, None, :]
+            attn = attn + (1.0 - mask) * -1e4
 
         attn = keras.layers.Softmax(axis=-1)(attn, mask=mask)
-        attn = ops.cast(self.drop1(attn), dtype)        # inputs의 dtype으로 casting - fp16 가속 설정
+        # attn = ops.cast(self.drop1(attn), dtype)        # inputs의 dtype으로 casting - fp16 가속 설정
+        attn = self.drop1(attn)
 
-        x = attn @ ops.cast(v, dtype)                   # inputs의 dtype으로 casting - fp16 가속 설정
+        # x = attn @ ops.cast(v, dtype)                   # inputs의 dtype으로 casting - fp16 가속 설정
+        x = attn @ v
         x = keras.layers.Reshape((-1, self.dim))(keras.layers.Permute((2, 1, 3))(x))
         x = self.proj(x)
-        return ops.cast(x, dtype)                       # inputs의 dtype으로 casting - fp16 가속 설정
+        return x # ops.cast(x, dtype)                       # inputs의 dtype으로 casting - fp16 가속 설정
 
-    def build(self, input_shape):
-        self.qkv.build(input_shape)
-        self.drop1.build((None, self.num_heads, input_shape[1], input_shape[1]))
-        self.proj.build((None, input_shape[1], self.dim))
-        super().build(input_shape)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "dim": self.dim,
-            "num_heads": self.num_heads,
-            "drop_rate": self.drop_rate
-        })
-        return config
+    # def build(self, input_shape):
+    #     self.qkv.build(input_shape)
+    #     self.drop1.build((None, self.num_heads, input_shape[1], input_shape[1]))
+    #     self.proj.build((None, input_shape[1], self.dim))
+    #     super().build(input_shape)
+    #
+    # def get_config(self):
+    #     config = super().get_config()
+    #     config.update({
+    #         "dim": self.dim,
+    #         "num_heads": self.num_heads,
+    #         "drop_rate": self.drop_rate
+    #     })
+    #     return config
 
 def TransformerBlock(dim=256, num_heads=4, expand=4, attn_dropout=0.2, drop_rate=0.2, activation='swish'):
     """
