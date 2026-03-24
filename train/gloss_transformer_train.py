@@ -21,7 +21,7 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
                 max_sequence_len: int=CROP_LEN
                 ):
     import keras
-    keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
+    # keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
 
     wandb.init(
         project=WANDB_GM_PROJECT,
@@ -116,8 +116,9 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
 
     # 3. 모델 저장
     print("\nSaving model...")
-    model.save(LOCAL_PATHS["gm_final"])
-    upload_file(local_root_path=str(Path(LOCAL_PATHS["gm_final"]).parent), upload_path=LOAD_GM, file_name=str(Path(Path(LOCAL_PATHS["gm_final"]).name)))
+    final_model_path = Path(LOCAL_PATHS["gm_final"])
+    model.save(str(final_model_path))
+    upload_file(local_root_path=str(final_model_path.parent), upload_path=LOAD_GM, file_name=str(final_model_path.name))
 
     artifact = wandb.Artifact(
         name=f"gloss-{SELECTED_GM_TYPE}-model",
@@ -129,27 +130,27 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     wandb.log_artifact(artifact)
 
     # 4. 경량화 모델 변환
-    keras.mixed_precision.set_global_policy("float32") # tflite casting 가능하도록
-    fp32_model = keras.models.load_model(LOCAL_PATHS["gm_final"])
-
-    print("Converting to TFLite...")
-    tflite_model = TFLiteModel(fp32_model)  # Pass single model, not list
-
-    concrete_input_signature = tf.TensorSpec(
-        shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
-        dtype=tf.float32,
-        name='inputs'
-    )
-    concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
-    converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function], tflite_model)
-    converter.target_spec.supported_ops = [
-        tf.lite.OpsSet.TFLITE_BUILTINS, # 기본 TFLite 연산
-        tf.lite.OpsSet.SELECT_TF_OPS    # [추가] 부족한 연산을 TF에서 가져오는 'Flex' 기능 활성화
-    ]
-    converter._experimental_lower_tensor_list_ops = False # 텐서 리스트 연산의 자동 낮추기 처리 비활성화
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-
     try:
+        # keras.mixed_precision.set_global_policy("float32") # tflite casting 가능하도록
+        # fp32_model = keras.models.load_model(LOCAL_PATHS["gm_final"])
+
+        print("Converting to TFLite...")
+        tflite_model = TFLiteModel(model)  # Pass single model, not list
+
+        concrete_input_signature = tf.TensorSpec(
+            shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
+            dtype=tf.float32,
+            name='inputs'
+        )
+        concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
+        converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function], tflite_model)
+        converter.target_spec.supported_ops = [
+            tf.lite.OpsSet.TFLITE_BUILTINS, # 기본 TFLite 연산
+            tf.lite.OpsSet.SELECT_TF_OPS    # [추가] 부족한 연산을 TF에서 가져오는 'Flex' 기능 활성화
+        ]
+        converter._experimental_lower_tensor_list_ops = False # 텐서 리스트 연산의 자동 낮추기 처리 비활성화
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+
         tflite_quant_model = converter.convert()
         # 7. 경량화 모델 저장
         with open(LOCAL_PATHS["gm_tflite"], 'wb') as f:
@@ -224,4 +225,4 @@ if __name__ == "__main__":
     # 1. 사용자 옵션 받기
     args = get_model_args()
     # 2. 모델 학습
-    history = train_model(learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl)
+    train_model(learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl)
