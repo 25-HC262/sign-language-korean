@@ -237,7 +237,7 @@ class TrainDataLoader:
     def _base_generator(self, path=None) -> tf.data.Dataset:
         self.max_len = MAX_LEN
         # self.videos 구성
-        self._get_all_filepaths(path=path)
+        self._get_all_filepaths(path=str(path))
 
         videos_snapshot = list(self.videos)
         random.seed(42)
@@ -270,7 +270,7 @@ class TrainDataLoader:
 
     def create_umap_test_dataset(self) -> np.ndarray:
         if self.test_umap_data_num is None: return np.array([], dtype=np.float32)
-        self._get_all_filepaths(path=self.test_data_path, umap_data_num=self.test_umap_data_num)
+        self._get_all_filepaths(path=str(self.test_data_path), umap_data_num=self.test_umap_data_num)
         test_ds = np.array(self.umap_keypoints_list, dtype=np.float32)
 
         print(f"유맵 테스트 데이터셋 크기 (예상): {len(test_ds)}")
@@ -316,7 +316,7 @@ class TrainDataLoader:
 
     # 훈련 data 혹은 test data를 가져옴.
     # dim_reduction에 따라 데이터 차원축소를 하거나 하지 않음.
-    def _get_all_filepaths(self, umap_data_num: int=None, path=None):
+    def _get_all_filepaths(self, umap_data_num: int=None, path: str=None):
         path = self.data_path if path is None else path
         print(f"\nStarting data loading from: {path}")
 
