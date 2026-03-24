@@ -419,10 +419,20 @@ class TrainDataLoader:
         client = storage.Client()
         self.gcs_bucket = client.bucket(self.gcs_bucket_name)
 
-        # 1. 모든 파일 목록 한 번에 가져오기 (가장 중요한 최적화)
-        print(f"[*] Fetching metadata from GCS... (this might take a few seconds)")
+        def fetch_class_blobs(cls_name):
+            # 예: gs://test-openpose-keypoint/NIA_SL_SEN0001/
+            target_prefix = f"{self.gcs_prefix}/{cls_name}/".replace("//", "/").lstrip("/")
+            return list(self.gcs_client.list_blobs(self.gcs_bucket_name, prefix=target_prefix))
+
+        # 1. 특정 클래스 파일 목록 한 번에 가져오기 (가장 중요한 최적화)
+        print(f"[*] Fetching metadata from GCS for {len(KSL_SENTENCES)} target classes...")
         blobs = list(client.list_blobs(self.gcs_bucket_name, prefix=self.gcs_prefix))
-        print(f"blobs 개수: {len(blobs)}")
+        all_blobs = []
+        with ThreadPoolExecutor(max_workers=10) as list_executor:
+            results = list(list_executor.map(fetch_class_blobs, KSL_SENTENCES.keys()))
+            for res in results:
+                all_blobs.extend(res)
+        print(f"[*] Filtered blobs count: {len(all_blobs)} (Found only target classes)")
 
         # 2. 파일들을 구조화: {클래스: {방향: {사람ID: [파일리스트]}}}
         # GCS 경로 예시: data/SENTENCE_01/SENTENCE_01_D/REAL_01_D/frame_01_keypoints.json
@@ -476,10 +486,14 @@ class TrainDataLoader:
                                 # 일단 구조 유지를 위해 여기서 처리
                                 keypoints_batch = self.umap_encoder.predict(keypoints_batch, verbose=0)
 
-                            self.videos.append({
-                                'sequence': keypoints_batch,
-                                'class_label': self.label_map[cls_name]
-                            })
+                                if cls_name in self.label_map:
+                                    self.videos.append({
+                                        'sequence': keypoints_batch,
+                                        'class_label': self.label_map[cls_name]
+                                    })
+                                else:
+                                    # 맵에 없는 클래스는 경고만 띄우고 스킵합니다.
+                                    tqdm.write(f"[Warning] Class '{cls_name}' not found in label_map. Skipping...")
                         else: # UMAP용 (전체 프레임 저장)
                             keypoints_list.extend(keypoints_batch)
 
