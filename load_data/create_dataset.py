@@ -416,8 +416,8 @@ class TrainDataLoader:
         self.gcs_bucket_name = parsed_path.netloc
         self.gcs_prefix = parsed_path.path.lstrip('/')
 
-        client = storage.Client()
-        self.gcs_bucket = client.bucket(self.gcs_bucket_name)
+        self.gcs_client = storage.Client()
+        self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
 
         def fetch_class_blobs(cls_name):
             # 예: gs://test-openpose-keypoint/NIA_SL_SEN0001/
@@ -426,7 +426,6 @@ class TrainDataLoader:
 
         # 1. 특정 클래스 파일 목록 한 번에 가져오기 (가장 중요한 최적화)
         print(f"[*] Fetching metadata from GCS for {len(KSL_SENTENCES)} target classes...")
-        blobs = list(client.list_blobs(self.gcs_bucket_name, prefix=self.gcs_prefix))
         all_blobs = []
         with ThreadPoolExecutor(max_workers=10) as list_executor:
             results = list(list_executor.map(fetch_class_blobs, KSL_SENTENCES.keys()))
@@ -440,7 +439,7 @@ class TrainDataLoader:
 
         all_json_files = [] # UMAP용 전체 리스트
 
-        for blob in blobs:
+        for blob in all_blobs:
             if not blob.name.endswith('_keypoints.json'): continue
 
             parts = blob.name.replace(self.gcs_prefix, "").strip("/").split("/")
@@ -605,8 +604,11 @@ class TrainDataLoader:
 
         return selected_keypoints.astype(np.float32) # (49, 2)
 
-    def _load_json_from_path(self, file_path_tensor: tf.Tensor) -> np.ndarray:
-        file_path = file_path_tensor.numpy().decode('utf-8')
+    def _load_json_from_path(self, file_path: str) -> np.ndarray:
+        # file_path = file_path_tensor.numpy().decode('utf-8')
+        # 만약 텐서가 들어온 경우를 대비한 안전장치
+        if hasattr(file_path, "numpy"):
+            file_path = file_path.numpy().decode('utf-8')
         try:
             if file_path.startswith('gs://'):
                 blob_name = file_path.replace(f"gs://{self.gcs_bucket_name}/", "")
@@ -630,7 +632,7 @@ class TrainDataLoader:
 
             return self._json_to_numpy(person)
         except Exception as e:
-            raise ValueError(f"Error processing {file_path_tensor.numpy().decode('utf-8')}: {e}")
+            raise ValueError(f"Error processing {file_path}: {e}")
 
     #  --- S3 exclusive helper method ---
     def _list_s3_subdirs(self, prefix):
