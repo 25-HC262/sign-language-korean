@@ -13,9 +13,10 @@ from optuna.storages import RDBStorage
 
 from src.config import OPTUNA_TRIALS_PATH, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
     OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, LOCAL_PATHS, UMAP_OUTPUT_DIM, \
-    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, UMAP_LOAD_PATH, get_base_parser, L_PARAMS, SELECTED_GM_TYPE
+    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, UMAP_LOAD_PATH, get_base_parser, L_PARAMS, SELECTED_GM_TYPE, \
+    LOAD_TOOLS
 
-from load_data.create_dataset import DataSetter
+from load_data.create_dataset import DataSetter, upload_file
 from src.backbone import get_model
 
 
@@ -156,6 +157,8 @@ if __name__=="__main__":
     with open(BEST_PARAMS_PATH, "w") as f:
         json.dump(study.best_params, f)
 
+    upload_file(local_root_path=str(BEST_PARAMS_PATH.parent), upload_path=LOAD_TOOLS, file_name=str(BEST_PARAMS_PATH.name))
+
     # 4. 성적 순 상위 30%의 정확도 & 소요 시간 출력
     df = study.trials_dataframe()
     top_num = max(int(n_trials*0.3), 1)
@@ -219,6 +222,13 @@ if __name__=="__main__":
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
 
             print(f"    > {graph_type_name} 저장 완료: {save_path}")
+
+            # 메모리 해제 및 캔버스 초기화
+            plt.clf()
+            plt.close('all')
+
+            # 업로드
+            upload_file(local_root_path=str(save_path.parent), upload_path=LOAD_TOOLS, file_name=str(save_path.name))
 
         except Exception as e:
             print(f"    > {graph_type_name} 플롯 생성 실패: {e}")

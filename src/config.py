@@ -348,9 +348,9 @@ date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 """TO-DO: 기본 버킷명으로 통일"""
 # 테스트 폴더 추가할 것!
 base_map = {
-    "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints", "gs://test-openpose-keypoint"),
-    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints", "s3://test-openpose-keypoints"),
-    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints", "data/test-openpose-keypoints")
+    "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints", "gs://test-openpose-keypoint", "gs://trout-models/data/tools"),
+    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints", "s3://test-openpose-keypoints", "s3://trout-models/data/tools"),
+    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints", "data/test-openpose-keypoints", "tools/")
 }
 # 새로운 모델 저장
 names = {
@@ -366,8 +366,7 @@ files = {
 }
 
 # 로컬 베이스는 항상 필요
-L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST = (PROJECT_ROOT / p for p in base_map['L'])
-L_TOOLS = PROJECT_ROOT / "tools"
+L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST, L_TOOLS = (PROJECT_ROOT / p for p in base_map['L'])
 L_PARAMS = L_GM / "best_params"
 for p in [L_CKPT, L_GM, L_UMAP, L_TOOLS, L_TEST, L_PARAMS]:
     p.mkdir(parents=True, exist_ok=True)
@@ -375,7 +374,7 @@ L_PREPROCESSED_DATA = PROJECT_ROOT / "data" / "processed"
 print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 
 # LOAD_BASE: 사용자 선택 모드(UPLOAD_MODE)에서 가져옴
-LOAD_DATA, LOAD_UMAP, LOAD_GM, _, LOAD_TEST = base_map.get(UPLOAD_MODE, base_map['L'])
+LOAD_DATA, LOAD_UMAP, LOAD_GM, _, LOAD_TEST, LOAD_TOOLS = base_map.get(UPLOAD_MODE, base_map['L'])
 
 # 최종 경로
 UMAP_LOAD_PATH = f'{LOAD_UMAP}/{UMAP_MODEL}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
