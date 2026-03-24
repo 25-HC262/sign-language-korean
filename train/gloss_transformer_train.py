@@ -126,44 +126,44 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     wandb.log_artifact(artifact)
 
     # 4. 경량화 모델 변환
-    try:
-        # keras.mixed_precision.set_global_policy("float32") # tflite casting 가능하도록
-        # fp32_model = keras.models.load_model(LOCAL_PATHS["gm_final"])
-
-        print("Converting to TFLite...")
-        tflite_model = TFLiteModel(model)  # Pass single model, not list
-
-        concrete_input_signature = tf.TensorSpec(
-            shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
-            dtype=tf.float32,
-            name='inputs'
-        )
-        concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
-        converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function], tflite_model)
-        converter.target_spec.supported_ops = [
-            tf.lite.OpsSet.TFLITE_BUILTINS, # 기본 TFLite 연산
-            tf.lite.OpsSet.SELECT_TF_OPS    # [추가] 부족한 연산을 TF에서 가져오는 'Flex' 기능 활성화
-        ]
-        converter._experimental_lower_tensor_list_ops = False # 텐서 리스트 연산의 자동 낮추기 처리 비활성화
-        converter.optimizations = [tf.lite.Optimize.DEFAULT]
-
-        tflite_quant_model = converter.convert()
-        # 7. 경량화 모델 저장
-        with open(pc.LOCAL_PATHS["gm_tflite"], 'wb') as f:
-            f.write(tflite_quant_model)
-        print("TFLite model saved successfully!")
-        upload_file(local_root_path=str(Path(pc.LOCAL_PATHS["gm_tflite"]).parent), upload_path=pc.LOAD_GM, file_name=str(Path(pc.LOCAL_PATHS["gm_tflite"]).name))
-
-        tflite_artifact = wandb.Artifact(
-            name=f"gloss-{pc.SELECTED_GM_TYPE}-tflite",
-            type="model",
-            description=f"TFLite-converted gloss {pc.SELECTED_GM_TYPE} model",
-            metadata=dict(wandb.config),
-        )
-        tflite_artifact.add_file(pc.LOCAL_PATHS["gm_tflite"])
-        wandb.log_artifact(tflite_artifact)
-    except Exception as e:
-        print(f"Warning: TFLite conversion failed: {e}")
+    # try:
+    #     # keras.mixed_precision.set_global_policy("float32") # tflite casting 가능하도록
+    #     # fp32_model = keras.models.load_model(LOCAL_PATHS["gm_final"])
+    #
+    #     print("Converting to TFLite...")
+    #     tflite_model = TFLiteModel(model)  # Pass single model, not list
+    #
+    #     concrete_input_signature = tf.TensorSpec(
+    #         shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
+    #         dtype=tf.float32,
+    #         name='inputs'
+    #     )
+    #     concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
+    #     converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function], tflite_model)
+    #     converter.target_spec.supported_ops = [
+    #         tf.lite.OpsSet.TFLITE_BUILTINS, # 기본 TFLite 연산
+    #         tf.lite.OpsSet.SELECT_TF_OPS    # [추가] 부족한 연산을 TF에서 가져오는 'Flex' 기능 활성화
+    #     ]
+    #     converter._experimental_lower_tensor_list_ops = False # 텐서 리스트 연산의 자동 낮추기 처리 비활성화
+    #     converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    #
+    #     tflite_quant_model = converter.convert()
+    #     # 7. 경량화 모델 저장
+    #     with open(pc.LOCAL_PATHS["gm_tflite"], 'wb') as f:
+    #         f.write(tflite_quant_model)
+    #     print("TFLite model saved successfully!")
+    #     upload_file(local_root_path=str(Path(pc.LOCAL_PATHS["gm_tflite"]).parent), upload_path=pc.LOAD_GM, file_name=str(Path(pc.LOCAL_PATHS["gm_tflite"]).name))
+    #
+    #     tflite_artifact = wandb.Artifact(
+    #         name=f"gloss-{pc.SELECTED_GM_TYPE}-tflite",
+    #         type="model",
+    #         description=f"TFLite-converted gloss {pc.SELECTED_GM_TYPE} model",
+    #         metadata=dict(wandb.config),
+    #     )
+    #     tflite_artifact.add_file(pc.LOCAL_PATHS["gm_tflite"])
+    #     wandb.log_artifact(tflite_artifact)
+    # except Exception as e:
+    #     print(f"Warning: TFLite conversion failed: {e}")
 
     print("Training completed!")
 
