@@ -303,7 +303,7 @@ class MultiHeadSelfAttention(keras.layers.Layer):
         if mask is not None:
             # mask = ops.cast(mask[:, None, None, :], dtype) # inputs의 dtype으로 casting - fp16 가속 설정
             mask = mask[:, None, None, :]
-            attn = attn + (1.0 - mask) * -1e4
+            # attn = attn + (1.0 - mask) * -1e4
 
         attn = keras.layers.Softmax(axis=-1)(attn, mask=mask)
         # attn = ops.cast(self.drop1(attn), dtype)        # inputs의 dtype으로 casting - fp16 가속 설정
