@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Dict, Any, Tuple
 from typing import Union, Type
 from urllib.parse import urlparse
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 import keras
@@ -334,6 +336,9 @@ class TrainDataLoader:
             self.s3_prefix = parsed_s3_path.path.lstrip('/')
             self.s3_client = boto3.client('s3')
         if is_gcs:
+            self._load_data_from_gcs_fast(path, umap_data_num)
+            return
+
             parsed_path = urlparse(path)
             self.gcs_bucket_name = str(parsed_path.netloc)
             self.gcs_client = storage.Client()
@@ -405,6 +410,85 @@ class TrainDataLoader:
             random_keypoints_list = random.sample(keypoints_list, umap_data_num)
             self.umap_keypoints_list = np.array(random_keypoints_list, dtype=np.float32)
             del random_keypoints_list, keypoints_list
+
+    def _load_data_from_gcs_fast(self, path, umap_data_num=None):
+        parsed_path = urlparse(path)
+        self.gcs_bucket_name = parsed_path.netloc
+        self.gcs_prefix = parsed_path.path.lstrip('/')
+
+        client = storage.Client()
+        self.gcs_bucket = client.bucket(self.gcs_bucket_name)
+
+        # 1. 모든 파일 목록 한 번에 가져오기 (가장 중요한 최적화)
+        print(f"[*] Fetching metadata from GCS... (this might take a few seconds)")
+        blobs = list(client.list_blobs(self.gcs_bucket_name, prefix=self.gcs_prefix))
+        print(f"blobs 개수: {len(blobs)}")
+
+        # 2. 파일들을 구조화: {클래스: {방향: {사람ID: [파일리스트]}}}
+        # GCS 경로 예시: data/SENTENCE_01/SENTENCE_01_D/REAL_01_D/frame_01_keypoints.json
+        structured_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+
+        all_json_files = [] # UMAP용 전체 리스트
+
+        for blob in blobs:
+            if not blob.name.endswith('_keypoints.json'): continue
+
+            parts = blob.name.replace(self.gcs_prefix, "").strip("/").split("/")
+            if len(parts) < 4: continue # 경로 구조 확인 (class/dir/person/file)
+
+            cls, direction, person, filename = parts[0], parts[1], parts[2], parts[3]
+            file_url = f"gs://{self.gcs_bucket_name}/{blob.name}"
+            structured_data[cls][direction][person].append(file_url)
+            all_json_files.append(file_url)
+
+        # 3. 병렬 다운로드 함수 정의
+        def load_frame(url):
+            try:
+                return self._load_json_from_path(tf.constant(url)).reshape(-1)
+            except:
+                return None
+
+        # 4. 데이터셋 구성
+        self.videos = []
+        keypoints_list = [] # UMAP용
+
+        print(f"[*] Found {len(structured_data)} classes. Starting parallel download...")
+
+        # ThreadPoolExecutor로 병렬 처리 (네트워크 I/O 병목 해소)
+        with ThreadPoolExecutor(max_workers=32) as executor: # L4 사양이면 32~64도 거뜬합니다
+            for cls_name, directions in tqdm(structured_data.items(), desc="Processing Classes"):
+                for dir_name, persons in directions.items():
+                    for person_id, file_list in persons.items():
+                        # 정렬 (프레임 순서 유지)
+                        sorted_files = sorted(file_list)
+
+                        # 병렬로 프레임 읽기
+                        results = list(executor.map(load_frame, sorted_files))
+                        keypoints_batch = [r for r in results if r is not None]
+
+                        if not keypoints_batch: continue
+
+                        # 수치화 및 저장
+                        if self.trainer is Trainer.GM:
+                            keypoints_batch = np.array(keypoints_batch)
+                            if self.dim_reduction:
+                                # predict는 GPU 연산이므로 루프 밖이나 배치로 처리하는 게 좋지만,
+                                # 일단 구조 유지를 위해 여기서 처리
+                                keypoints_batch = self.umap_encoder.predict(keypoints_batch, verbose=0)
+
+                            self.videos.append({
+                                'sequence': keypoints_batch,
+                                'class_label': self.label_map[cls_name]
+                            })
+                        else: # UMAP용 (전체 프레임 저장)
+                            keypoints_list.extend(keypoints_batch)
+
+        # 5. UMAP 후처리
+        if self.trainer is Trainer.UMAP and keypoints_list:
+            target_num = umap_data_num if umap_data_num else self.umap_data_num
+            sampled = random.sample(keypoints_list, min(len(keypoints_list), target_num))
+            self.umap_keypoints_list = np.array(sampled, dtype=np.float32)
+            print(f"[*] UMAP dataset created with {len(self.umap_keypoints_list)} frames.")
 
     # 과거 umap 데이터 구성에 사용
     # 개별 키포인트 파일 경로의 묶음을 리턴함
@@ -510,27 +594,18 @@ class TrainDataLoader:
     def _load_json_from_path(self, file_path_tensor: tf.Tensor) -> np.ndarray:
         file_path = file_path_tensor.numpy().decode('utf-8')
         try:
-            if file_path.startswith('s3://'):
-                parsed_s3_path = urlparse(file_path)
-                s3_object = self.s3_client.get_object(
-                    Bucket=parsed_s3_path.netloc,
-                    Key=parsed_s3_path.path.lstrip('/')
-                )
-                file_content = s3_object['Body'].read().decode('utf-8')
-                data = json.loads(file_content)
-            elif file_path.startswith('gs://'):
-                parsed_gcs_path = urlparse(file_path)
-
-                gcs_bucket_name = parsed_gcs_path.netloc
-                blob_name = parsed_gcs_path.path.lstrip('/')
-
-                gcs_bucket = self.gcs_client.bucket(gcs_bucket_name)
-
-                blob = gcs_bucket.blob(blob_name)
-                file_content = blob.download_as_text()
-                data = json.loads(file_content) # 'utf-8' 설정 디폴트
+            if file_path.startswith('gs://'):
+                blob_name = file_path.replace(f"gs://{self.gcs_bucket_name}/", "")
+                blob = self.gcs_bucket.blob(blob_name)
+                content = blob.download_as_bytes() # download_as_bytes()가 download_as_text()보다 약간 더 빠를 수 있음
+                data = json.loads(content)
+            elif file_path.startswith('s3://'):
+                bucket_name = self.s3_bucket
+                key = file_path.replace(f"s3://{bucket_name}/", "")
+                response = self.s3_client.get_object(Bucket=bucket_name, Key=key)
+                data = json.loads(response['Body'].read())
             else:
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
             assert 'people' in data, "데이터에 키포인트 없음"
             people_data = data['people']
