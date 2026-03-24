@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
     BATCH_SIZE, UMAP_LOAD_PATH, TEST_RATE, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
-    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
+    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
     KEYPOINT_DIM, DATA_TYPE, DataDim, DataType, Trainer, LOAD_PREPROCESSED_DATA
 
 
@@ -87,7 +87,7 @@ class DataSetter:
         test_path = dir_path / "test_ds"
 
         loader_args = {
-            "data_path": LOAD_DATA,
+            "data_path": L_DATA,
             "trainer": trainer,
             "dim_reduction": dim_reduction,
             "umap_path": umap_path
