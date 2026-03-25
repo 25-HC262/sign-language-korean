@@ -126,7 +126,8 @@ if __name__=="__main__":
         # 유맵 사용 여부
         parser.add_argument(
             "--dr", "--dim_reduction",
-            choices=['n', 'y']
+            choices=['n', 'y'],
+            required=True
         )
 
         o_args = parser.parse_args()
