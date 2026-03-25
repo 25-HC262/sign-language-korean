@@ -397,7 +397,7 @@ class TFLiteModel(tf.Module):
         return {'outputs': outputs}
 
 def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES, training: bool=True,
-              num_heads: int=4):
+              num_heads: int=4, latent_dim: int=128):
     """
     Creates a model for sequence classification using a combination of convolutional layers and transformer blocks.
 
@@ -413,21 +413,23 @@ def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes
     inp = keras.Input(shape=(max_len, dim)) # 기존 CHANNELS -> 유맵 차원 축소로 UMAP_OUTPUT_DIM
     x = keras.layers.Masking(mask_value=PAD)(inp) if training else inp # 학습 시 masking 활성화
     ksize = 17
+
+    latent_dim = dim if dim % num_heads == 0 else ((dim // num_heads) + 1) * num_heads
     
     # Stem layers
-    x = keras.layers.Dense(dim, use_bias=False,name='stem_conv')(x)
+    x = keras.layers.Dense(latent_dim, use_bias=False,name='stem_conv')(x)
     x = keras.layers.BatchNormalization(momentum=0.95,name='stem_bn')(x)
 
     # Convolutional and Transformer blocks
-    x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-    x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-    x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-    x = TransformerBlock(dim,expand=2,num_heads=num_heads)(x)
+    x = Conv1DBlock(latent_dim,ksize,drop_rate=0.2)(x)
+    x = Conv1DBlock(latent_dim,ksize,drop_rate=0.2)(x)
+    x = Conv1DBlock(latent_dim,ksize,drop_rate=0.2)(x)
+    x = TransformerBlock(latent_dim,expand=2,num_heads=num_heads)(x)
 
-    x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-    x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-    x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-    x = TransformerBlock(dim,expand=2,num_heads=num_heads)(x)
+    x = Conv1DBlock(latent_dim,ksize,drop_rate=0.2)(x)
+    x = Conv1DBlock(latent_dim,ksize,drop_rate=0.2)(x)
+    x = Conv1DBlock(latent_dim,ksize,drop_rate=0.2)(x)
+    x = TransformerBlock(latent_dim,expand=2,num_heads=num_heads)(x)
 
     # Additional convolutional blocks and transformer blocks for larger models
     if dim == 384: #for the 4x sized model
@@ -442,7 +444,7 @@ def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes
         x = TransformerBlock(dim,expand=2,num_heads=num_heads)(x)
 
     # Top layers
-    x = keras.layers.Dense(dim*2,activation=None,name='top_conv')(x)
+    x = keras.layers.Dense(latent_dim*2,activation=None,name='top_conv')(x)
     x = keras.layers.GlobalAveragePooling1D()(x)
     x = LateDropout(0.8, start_step=dropout_step)(x)
     x = keras.layers.Dense(num_classes, name='classifier', activation='softmax', dtype='float32')(x) # fp16 가속 설정을 위한 데이터 누락 방지
