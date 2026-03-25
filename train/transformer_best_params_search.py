@@ -14,7 +14,7 @@ from optuna.storages import RDBStorage
 from src.config import OPTUNA_TRIALS_PATH, NUM_CLASSES, SUBSET_RATIO, \
     OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, UMAP_OUTPUT_DIM, \
     L_TOOLS, VALIDATION_SPLIT, get_base_parser, L_PARAMS, \
-    PathConfig, OUTPUT_DIM
+    PathConfig, OUTPUT_DIM, EPOCHS, CROP_LEN
 
 from load_data.create_dataset import DataSetter, upload_file
 from src.backbones.transformer_backbone import get_model
@@ -26,8 +26,8 @@ def objective(trial):
     batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
     weight_decay = trial.suggest_float("weight_decay", 1e-4, 0.2)
 
-    num_train_epochs = 200 # 고정
-    sequence_length = 300  # 고정
+    num_train_epochs = EPOCHS # 고정
+    sequence_length = CROP_LEN  # 고정
 
     # 2. 데이터 불러오기
     train_dataset, val_dataset, _ = DataSetter(
@@ -47,10 +47,10 @@ def objective(trial):
     val_dataset = val_dataset.shuffle(buffer_size=1000, seed=42)
     small_val_dataset = val_dataset.take(max(num_val,1))
 
-    output = UMAP_OUTPUT_DIM if dim_rd else OUTPUT_DIM
+    output_dim = UMAP_OUTPUT_DIM if dim_rd else OUTPUT_DIM
 
     # 3. 모델 설정
-    model = get_model(max_len=sequence_length, dropout_step=0, dim=output, num_classes=NUM_CLASSES)
+    model = get_model(max_len=sequence_length, dropout_step=0, dim=output_dim, num_classes=NUM_CLASSES)
     model.compile(
         optimizer = keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay),
         loss = keras.losses.SparseCategoricalCrossentropy(),
@@ -59,6 +59,13 @@ def objective(trial):
     print("Model compile finished.")
 
     # 4. 모델 학습
+    # val_dataset이 비어있는 경우(데이터 부족 시 val_size=0) 대비
+    # cardinality: 0=empty, -1=infinite, -2=unknown(데이터 있을 수 있음)
+    val_cardinality = val_dataset.cardinality().numpy()
+    val_available = val_cardinality != 0  # 0만 진짜 빈 데이터셋
+    if not val_available:
+        print("Warning: val_dataset이 비어있습니다. validation 없이 학습을 진행합니다.")
+    monitor_metric = 'val_loss' if val_available else 'loss'
     model.fit(
         small_train_dataset,
         validation_data=small_val_dataset,

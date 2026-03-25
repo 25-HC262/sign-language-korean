@@ -3,14 +3,13 @@ importlib.import_module("src.tf_keras_config")
 from pathlib import Path
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
-import keras
-keras.mixed_precision.set_global_policy("mixed_float16")
+
 
 # 커스텀
 from src.backbones.cnn_lstm_backbone import get_model
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
-    NUM_NODES, CHANNELS, VALIDATION_SPLIT, \
-    UMAP_OUTPUT_DIM, WEIGHT_DECAY, get_base_parser, PathConfig
+    NUM_NODES, VALIDATION_SPLIT, \
+    UMAP_OUTPUT_DIM, WEIGHT_DECAY, get_base_parser, PathConfig, OUTPUT_DIM
 from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
 
@@ -22,7 +21,12 @@ def train_model(learning_rate: float = LEARNING_RATE,
                 max_sequence_len: int = CROP_LEN,
                 cnn_channels: int = 64,
                 lstm_units: int = 128,
-                dropout: float = 0.3):
+                dropout: float = 0.3,
+                dim_reduction: bool = True):
+    import keras
+    keras.mixed_precision.set_global_policy("mixed_float16")
+
+    output_dim = UMAP_OUTPUT_DIM if dim_reduction else OUTPUT_DIM
 
     wandb.init(
         project=pc.WANDB_GM_PROJECT,
@@ -36,12 +40,12 @@ def train_model(learning_rate: float = LEARNING_RATE,
             "epochs": epochs,
             "batch_size": batch_size,
             "validation_split": VALIDATION_SPLIT,
-            "optimizer": "adamw",
+            "optimizer": "adamW",
             # Model architecture
             "model_type": pc.SELECTED_GM_TYPE,
             "max_len": max_sequence_len,
-            "input_channels": CHANNELS,
-            "umap_output_dim": UMAP_OUTPUT_DIM,
+            "input_channels": pc.CHANNELS,
+            "umap_output_dim": output_dim,
             "cnn_channels": cnn_channels,
             "lstm_units": lstm_units,
             "dropout": dropout,
@@ -60,17 +64,17 @@ def train_model(learning_rate: float = LEARNING_RATE,
 
     print("\nLoading training data...")
     train_dataset, val_dataset, test_dataset = DataSetter(
-        umap_path=pc.UMAP_LOAD_PATH,
+        umap_path=umap_path,
         max_seq_len=max_sequence_len,
         batch_size=batch_size,
-        dim_reduction=True
+        dim_reduction=dim_reduction
     ).get_datasets()
 
     # 1. 모델 생성
     print("\nCreating model...")
     model = get_model(
         max_len=max_sequence_len,
-        dim=pc.UMAP_OUTPUT_DIM,
+        dim=output_dim,
         num_classes=NUM_CLASSES,
         cnn_channels=cnn_channels,
         lstm_units=lstm_units,
@@ -93,6 +97,8 @@ def train_model(learning_rate: float = LEARNING_RATE,
     if not val_available:
         print("Warning: val_dataset이 비어있습니다. validation 없이 학습을 진행합니다.")
     monitor_metric = 'val_loss' if val_available else 'loss'
+
+    dynamic_min_lr = learning_rate * 0.01 # 초기 lr에 맞춰 min_lr을 동적으로 설정 (예: 초기값의 1%)
 
     print("\nStarting training...")
     history = model.fit(
@@ -118,7 +124,7 @@ def train_model(learning_rate: float = LEARNING_RATE,
                 monitor=monitor_metric,
                 factor=0.5,
                 patience=5,
-                min_lr=1e-6,
+                min_lr=dynamic_min_lr,
                 verbose=1
             ),
             WandbMetricsLogger()
@@ -127,12 +133,9 @@ def train_model(learning_rate: float = LEARNING_RATE,
 
     # 3. 모델 저장
     print("\nSaving model...")
-    model.save(pc.LOCAL_PATHS["gm_final"])
-    upload_file(
-        local_root_path=str(Path(pc.LOCAL_PATHS["gm_final"]).parent),
-        upload_path=pc.LOAD_GM,
-        file_name=str(Path(pc.LOCAL_PATHS["gm_final"]).name)
-    )
+    final_model_path = Path(pc.LOCAL_PATHS["gm_final"])
+    model.save(str(final_model_path))
+    upload_file(local_root_path=str(final_model_path.parent), upload_path=pc.LOAD_GM, file_name=str(final_model_path.name))
 
     artifact = wandb.Artifact(
         name=f"gloss-{pc.SELECTED_GM_TYPE}-model",
@@ -146,7 +149,7 @@ def train_model(learning_rate: float = LEARNING_RATE,
     # 4. TFLite 변환
     # print("Converting to TFLite...")
     # concrete_input_signature = tf.TensorSpec(
-    #     shape=[1, max_sequence_len, pc.UMAP_OUTPUT_DIM],
+    #     shape=[1, max_sequence_len, output_dim],
     #     dtype=tf.float32
     # )
     #
@@ -187,6 +190,7 @@ def train_model(learning_rate: float = LEARNING_RATE,
     print("Training completed!")
 
     # 5. 모델 평가
+    print(f"Test dataset size: {len(list(test_dataset)) if hasattr(test_dataset, '__len__') else 'Unknown'}")
     test_cardinality = test_dataset.cardinality().numpy()
     if test_cardinality != 0:
         eval_results = model.evaluate(test_dataset, return_dict=True)
@@ -203,7 +207,7 @@ def train_model(learning_rate: float = LEARNING_RATE,
 def get_model_args():
     """
     명령어 예시:
-        python -m train.cnn_lstm_train --lr 0.001 --bs 32 --epochs 200 --cnn 64 --lstm 128
+        python -m train.cnn_lstm_train --upload G --lr 0.001 --bs 32 --epochs 200 --cnn 64 --lstm 128 --dr y
     """
     import argparse
     base_parser = get_base_parser()
@@ -217,6 +221,12 @@ def get_model_args():
     parser.add_argument("--cnn", "--cnn_channels", type=int,   default=64)
     parser.add_argument("--lstm", "--lstm_units",  type=int,   default=128)
     parser.add_argument("--dropout",               type=float, default=0.3)
+    # 유맵 사용 여부
+    parser.add_argument(
+        "--dr", "--dim_reduction",
+        choices=['n', 'y'],
+        required=True
+    )
 
     args = parser.parse_args()
     print(*(f"   > {'[default]' if v == parser.get_default(k) else ''} {k}: {v} selected." for k, v in vars(args).items()), sep='\n')
@@ -225,8 +235,10 @@ def get_model_args():
 if __name__ == "__main__":
     args = get_model_args()
     pc = PathConfig(args)
+    dim_rd = True if args.dr=='y' else False
+    umap_path = pc.UMAP_LOAD_PATH if dim_rd else None
 
-    history = train_model(
+    train_model(
         learning_rate=args.lr,
         batch_size=args.bs,
         epochs=args.epochs,
@@ -235,4 +247,5 @@ if __name__ == "__main__":
         cnn_channels=args.cnn,
         lstm_units=args.lstm,
         dropout=args.dropout,
+        dim_reduction=dim_rd
     )

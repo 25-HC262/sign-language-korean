@@ -25,9 +25,7 @@ from accelerate import Accelerator
 from src.backbones.mamba_backbone import get_model
 from src.config import (
     CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES,
-    WEIGHT_DECAY, UMAP_OUTPUT_DIM, UMAP_LOAD_PATH,
-    LOCAL_PATHS, WANDB_GM_PROJECT, WANDB_GM_GROUP, WANDB_GM_TAGS,
-    L_GM, L_CKPT, date_idx,
+    WEIGHT_DECAY, UMAP_OUTPUT_DIM, L_GM, L_CKPT, date_idx, PathConfig, OUTPUT_DIM,
 )
 from load_data.create_dataset import DataSetter, upload_file
 
@@ -74,18 +72,21 @@ def train_model(
     d_model: int = UMAP_OUTPUT_DIM,
     n_stages: int = 2,
     d_state: int = 16,
+    dim_reduction: bool = True
 ):
     # 1. Accelerator 객체 초기화
     accelerator = Accelerator()
     device = accelerator.device
     print(f"사용 디바이스: {device}")
 
+    output_dim = UMAP_OUTPUT_DIM if dim_reduction else OUTPUT_DIM
+
     # W&B 초기화
     run = wandb.init(
-        project=WANDB_GM_PROJECT,
+        project=pc.WANDB_GM_PROJECT,
         name=f"mamba-d{d_model}-s{n_stages}",
-        group=WANDB_GM_GROUP,
-        tags=list(WANDB_GM_TAGS) + ["mamba"],
+        group=pc.WANDB_GM_GROUP,
+        tags=list(pc.WANDB_GM_TAGS) + ["mamba"],
         job_type="train",
         config={
             "model_type": "CNN+Mamba",
@@ -98,17 +99,18 @@ def train_model(
             "n_stages": n_stages,
             "d_state": d_state,
             "num_classes": NUM_CLASSES,
-            "input_dim": UMAP_OUTPUT_DIM,
+            "input_dim": pc.CHANNELS,
+            "output_dim": output_dim
         },
     )
 
     # ── 1. 데이터 로드 (기존 DataSetter 재사용) ──
     print("\n데이터 로딩 중 (DataSetter + UMAP)...")
     train_tf, val_tf, test_tf = DataSetter(
-        umap_path=UMAP_LOAD_PATH,
+        umap_path=umap_path,
         max_seq_len=max_sequence_len,
         batch_size=batch_size,
-        dim_reduction=True,
+        dim_reduction=dim_reduction,
     ).get_datasets()
 
     print("\nTF Dataset → PyTorch DataLoader 변환 중...")
@@ -124,7 +126,7 @@ def train_model(
     print("\n모델 생성 중...")
     model = get_model(
         max_len=max_sequence_len,
-        in_dim=UMAP_OUTPUT_DIM,
+        in_dim=output_dim,
         d_model=d_model,
         n_stages=n_stages,
         d_state=d_state,
@@ -138,8 +140,9 @@ def train_model(
     # ── 3. 손실함수 / 옵티마이저 / 스케줄러 ──
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    dynamic_min_lr = learning_rate * 0.01 # 초기 lr에 맞춰 min_lr을 동적으로 설정 (예: 초기값의 1%)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6
+        optimizer, mode="min", factor=0.5, patience=5, min_lr=dynamic_min_lr
     )
 
     # 2. 모델, 옵티마이저, 데이터 로더를 prepare로 감쌈
@@ -343,6 +346,9 @@ if __name__ == "__main__":
         print("WARNING: GPU 없음 — CPU로 학습합니다.")
 
     args = get_model_args()
+    pc = PathConfig(args)
+    dim_rd = True if args.dr=='y' else False
+    umap_path = pc.UMAP_LOAD_PATH if dim_rd else None
     train_model(
         learning_rate=args.lr,
         epochs=args.epochs,
@@ -352,4 +358,5 @@ if __name__ == "__main__":
         d_model=args.d_model,
         n_stages=args.n_stages,
         d_state=args.d_state,
+        dim_reduction=dim_rd
     )

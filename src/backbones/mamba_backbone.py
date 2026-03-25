@@ -244,7 +244,7 @@ class SignMamba(nn.Module):
 
     Args:
         max_len:     입력 시퀀스 최대 길이 (default: 125)
-        in_dim:      UMAP 출력 차원 (default: 32)
+        in_dim:      UMAP 출력 차원 (default: 32) - UMAP 차원축소 안할 시 OUTPUT_DIM
         d_model:     모델 내부 차원
         n_stages:    (Conv×3 + Mamba) 스테이지 수 (default: 2)
         kernel_size: Conv1DBlock 커널 크기 (default: 17)

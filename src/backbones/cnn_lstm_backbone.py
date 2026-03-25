@@ -2,10 +2,10 @@
 import importlib
 importlib.import_module("src.tf_keras_config")
 import keras
-from src.config import CROP_LEN, PAD, NUM_CLASSES
+from src.config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
 
 
-def get_model(dim: int, max_len=CROP_LEN, num_classes=NUM_CLASSES,
+def get_model(dim: int=UMAP_OUTPUT_DIM, max_len=CROP_LEN, num_classes=NUM_CLASSES,
               cnn_channels=64, lstm_units=128, dropout=0.3):
     """
     수어 인식을 위한 CNN+LSTM 모델.
@@ -19,7 +19,7 @@ def get_model(dim: int, max_len=CROP_LEN, num_classes=NUM_CLASSES,
 
     Args:
         max_len      (int)  : 입력 시퀀스 최대 길이       (기본: CROP_LEN)
-        dim          (int)  : 입력 피처 차원 (UMAP 출력)  (기본: UMAP_OUTPUT_DIM)
+        dim          (int)  : 입력 피처 차원 (차원 축소 시 UMAP 출력)  (기본: UMAP_OUTPUT_DIM)
         num_classes  (int)  : 분류 클래스 수              (기본: NUM_CLASSES)
         cnn_channels (int)  : Conv1D 출력 채널 수         (기본: 64)
         lstm_units   (int)  : LSTM 히든 유닛 수           (기본: 128)

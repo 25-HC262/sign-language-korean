@@ -10,13 +10,17 @@ from load_data.create_dataset import upload_file
 from src.backbones.transformer_backbone import get_model
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     UMAP_OUTPUT_DIM, WEIGHT_DECAY, get_base_parser, \
-    PathConfig, VALIDATION_SPLIT, NUM_NODES
+    PathConfig, VALIDATION_SPLIT, NUM_NODES, OUTPUT_DIM
+
 
 def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
-                max_sequence_len: int=CROP_LEN
+                max_sequence_len: int=CROP_LEN,
+                dim_reduction: bool=True
                 ):
     import keras
     keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
+
+    output_dim = UMAP_OUTPUT_DIM if dim_reduction else OUTPUT_DIM
 
     wandb.init(
         project=pc.WANDB_GM_PROJECT,
@@ -30,12 +34,12 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
             "epochs": epochs,
             "batch_size": batch_size,
             "validation_split": VALIDATION_SPLIT,
-            "optimizer": "adam",
+            "optimizer": "adamW",
             # Model architecture
             "model_type": pc.SELECTED_GM_TYPE,
             "max_len": max_sequence_len,
             "input_channels": pc.CHANNELS,
-            "conv_dim": UMAP_OUTPUT_DIM,
+            "conv_dim": output_dim,
             "kernel_size": 17,
             "num_heads": 4, # TO-DO: backbone.py에서 실제로 가져오도록 수정
             "transformer_expand": 2,
@@ -47,7 +51,7 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
             "num_classes": NUM_CLASSES,
             # Data
             "num_nodes": NUM_NODES,
-            "output_dim": UMAP_OUTPUT_DIM,
+            "output_dim": output_dim,
             # Callbacks
             "early_stopping_patience": 10,
             "lr_reduce_patience": 5,
@@ -59,15 +63,15 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     )
     print("\nLoading training data...")
     train_dataset, val_dataset, test_dataset = DataSetter(
-        umap_path=pc.UMAP_LOAD_PATH,
+        umap_path=umap_path,
         max_seq_len=max_sequence_len,
         batch_size=batch_size,
-        dim_reduction=True
+        dim_reduction=dim_reduction
     ).get_datasets()
 
     # 1. 모델 생성
     print("\nCreating model...")
-    model = get_model(max_len=max_sequence_len, dropout_step=0, dim=pc.UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES)
+    model = get_model(max_len=max_sequence_len, dropout_step=0, dim=output_dim, num_classes=NUM_CLASSES)
     model.compile(
         optimizer=keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay),
         loss=keras.losses.SparseCategoricalCrossentropy(),
@@ -78,31 +82,41 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     print(f"Output shape: {model.output_shape}")
 
     # 2. 모델 학습
+    # val_dataset이 비어있는 경우(데이터 부족 시 val_size=0) 대비
+    # cardinality: 0=empty, -1=infinite, -2=unknown(데이터 있을 수 있음)
+    val_cardinality = val_dataset.cardinality().numpy()
+    val_available = val_cardinality != 0  # 0만 진짜 빈 데이터셋
+    if not val_available:
+        print("Warning: val_dataset이 비어있습니다. validation 없이 학습을 진행합니다.")
+    monitor_metric = 'val_loss' if val_available else 'loss'
+
+    dynamic_min_lr = learning_rate * 0.01 # 초기 lr에 맞춰 min_lr을 동적으로 설정 (예: 초기값의 1%)
+
     print("\nStarting training...")
     history = model.fit(
         train_dataset,
-        validation_data=val_dataset,
+        validation_data=val_dataset if val_available else None,
         epochs=epochs,
         verbose=1,
         callbacks=[
             keras.callbacks.ModelCheckpoint(
                 pc.LOCAL_PATHS["gm_ckpt"],
-                monitor='val_loss',
+                monitor=monitor_metric,
                 save_best_only=True,
                 save_weights_only=False,
                 verbose=1
             ),
             keras.callbacks.EarlyStopping(
-                monitor='val_loss',
+                monitor=monitor_metric,
                 patience=10,
                 restore_best_weights=True,
                 verbose=1
             ),
             keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss',
+                monitor=monitor_metric,
                 factor=0.5,
                 patience=5,
-                min_lr=1e-6,
+                min_lr=dynamic_min_lr,
                 verbose=1
             ),
             WandbMetricsLogger()
@@ -127,13 +141,13 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
     # 4. 경량화 모델 변환
     # try:
     #     # keras.mixed_precision.set_global_policy("float32") # tflite casting 가능하도록
-    #     # fp32_model = keras.models.load_model(LOCAL_PATHS["gm_final"])
+    #     # fp32_model = keras.models.load_model(pc.LOCAL_PATHS["gm_final"])
     #
     #     print("Converting to TFLite...")
     #     tflite_model = TFLiteModel(model)  # Pass single model, not list
     #
     #     concrete_input_signature = tf.TensorSpec(
-    #         shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
+    #         shape=[1, max_sequence_len, output_dim],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
     #         dtype=tf.float32,
     #         name='inputs'
     #     )
@@ -168,18 +182,21 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
 
     # 5. 모델 평가
     print(f"Test dataset size: {len(list(test_dataset)) if hasattr(test_dataset, '__len__') else 'Unknown'}")
-    eval_results = model.evaluate(test_dataset, return_dict=True)
-    print("Model Test Results: ")
-    print(*(f"  > {k}: {v:.3f}" for k, v in eval_results.items()), sep='\n')
-
-    wandb.log({f"test_{k}": v for k, v in eval_results.items()})
+    test_cardinality = test_dataset.cardinality().numpy()
+    if test_cardinality != 0:
+        eval_results = model.evaluate(test_dataset, return_dict=True)
+        print("Model Test Results:")
+        print(*(f"  > {k}: {v:.3f}" for k, v in eval_results.items()), sep='\n')
+        wandb.log({f"test_{k}": v for k, v in eval_results.items()})
+    else:
+        print("Warning: test_dataset이 비어있습니다. 평가를 건너뜁니다.")
     wandb.finish()
 
     return history
 
 def get_model_args():
     """
-    명령어 예시: python -m train.gloss_transformer_train --storage L --lr 0.4 --bs 64 --epochs 120 --wd 0.03 --msl 170
+    명령어 예시: python -m train.gloss_transformer_train --upload G --lr 0.4 --bs 64 --epochs 120 --wd 0.03 --msl 170 --dr y
     """
     import argparse
     base_parser = get_base_parser()
@@ -210,6 +227,12 @@ def get_model_args():
         type=int,
         default=CROP_LEN
     )
+    # 유맵 사용 여부
+    parser.add_argument(
+        "--dr", "--dim_reduction",
+        choices=['n', 'y'],
+        required=True
+    )
 
     ## config.py에서 umap 모델 선택
 
@@ -221,5 +244,7 @@ if __name__ == "__main__":
     # 1. 사용자 옵션 받기
     args = get_model_args()
     pc = PathConfig(args)
+    dim_rd = True if args.dr=='y' else False
+    umap_path = pc.UMAP_LOAD_PATH if dim_rd else None
     # 2. 모델 학습
-    train_model(learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl)
+    train_model(learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl, dim_reduction=dim_rd)
