@@ -9,8 +9,7 @@ from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
 from src.backbones.transformer_backbone import get_model
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
-    UMAP_OUTPUT_DIM, WEIGHT_DECAY, get_base_parser, \
-    PathConfig, VALIDATION_SPLIT, NUM_NODES, OUTPUT_DIM
+    UMAP_OUTPUT_DIM, WEIGHT_DECAY, PathConfig, VALIDATION_SPLIT, NUM_NODES, OUTPUT_DIM, get_config_args
 
 
 def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
@@ -199,7 +198,7 @@ def get_model_args():
     명령어 예시: python -m train.gloss_transformer_train --upload G --lr 0.4 --bs 64 --epochs 120 --wd 0.03 --msl 170 --dr y
     """
     import argparse
-    base_parser = get_base_parser()
+    base_parser, _ = get_config_args()
     parser = argparse.ArgumentParser(parents=[base_parser])
 
     parser.add_argument(

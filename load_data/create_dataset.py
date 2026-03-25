@@ -38,7 +38,7 @@ class DataSetter:
         :param trainer:
         :param max_seq_len:
         """
-        args = get_config_args()
+        _, args = get_config_args()
         pc = PathConfig(args)
 
         self.max_seq_len = max_seq_len

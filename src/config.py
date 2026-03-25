@@ -3,7 +3,7 @@ import datetime
 import json
 from enum import Enum
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 # ============= 데이터를 위한 클래스 =============
 class DataType(Enum):
@@ -279,6 +279,15 @@ assert len(set(POINT_LANDMARKS)) == len(POINT_LANDMARKS), "Duplicate landmarks!"
 # ==========================================
 # 전역 패스(Path) 변수 설정
 # ==========================================
+def get_config_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
+    parser = get_base_parser()
+    args, rest = parser.parse_known_args()
+
+    # 선택된 trainer에 따른 세부 인자 설정
+    if args.trainer == Trainer.UMAP.value:
+        return get_umap_args(parser, rest)
+    else:
+        return get_gm_args(parser, rest)
 
 def get_base_parser():
     """
@@ -328,18 +337,7 @@ def get_base_parser():
     )
     return parser
 
-def get_config_args():
-    parser = get_base_parser()
-    args, rest = parser.parse_known_args()
-
-    # 선택된 trainer에 따른 세부 인자 설정
-    if args.trainer == Trainer.UMAP.value:
-        fin_args = get_umap_args(parser, rest)
-    else:
-        fin_args = get_gm_args(parser, rest)
-    return fin_args
-
-def get_umap_args(parent: argparse.ArgumentParser, rest: List[str]):
+def get_umap_args(parent: argparse.ArgumentParser, rest: List[str]) -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     """
     1. umap 축소 차원수(결과) 선택
         --u_dim 뒤에 umap을 통해 축소하고자 하는 차원수 선택
@@ -355,9 +353,9 @@ def get_umap_args(parent: argparse.ArgumentParser, rest: List[str]):
         help="Reducing dimension using Umap: default 32"
     )
     args, _ = parser.parse_known_args(rest)
-    return args
+    return parser, args
 
-def get_gm_args(parent: argparse.ArgumentParser, rest: List[str]):
+def get_gm_args(parent: argparse.ArgumentParser, rest: List[str])  -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     """
     1. umap 모델 선택
         --umap 뒤에 모델명
@@ -383,7 +381,7 @@ def get_gm_args(parent: argparse.ArgumentParser, rest: List[str]):
         default="transformer"
     )
     args, _ = parser.parse_known_args(rest)
-    return args
+    return parser, args
 
 # 최종 경로
 UMAP_MODEL = 'encoder.keras'

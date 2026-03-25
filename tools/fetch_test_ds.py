@@ -63,6 +63,6 @@ def test_data_loader_standalone():
     print("-"*30 + "\n")
 
 if __name__ == "__main__":
-    args = get_config_args()
+    _, args = get_config_args()
     pc = PathConfig(args)
     test_data_loader_standalone()

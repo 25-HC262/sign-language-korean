@@ -95,7 +95,8 @@ except Exception as e:
 
 print("UMAP 인코더 로딩 중...")
 try:
-    _umap_path = PathConfig(get_config_args()).UMAP_LOAD_PATH
+    _, args = get_config_args()
+    _umap_path = PathConfig(args).UMAP_LOAD_PATH
     umap_encoder = keras.models.load_model(_umap_path)
     print(f"UMAP 인코더 로딩 완료: {_umap_path}")
 except Exception as e:

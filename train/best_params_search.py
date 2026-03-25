@@ -13,8 +13,8 @@ from optuna.storages import RDBStorage
 
 from src.config import OPTUNA_TRIALS_PATH, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
     OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, UMAP_OUTPUT_DIM, \
-    L_TOOLS, VALIDATION_SPLIT, get_base_parser, L_PARAMS, \
-    PathConfig, CROP_LEN, OUTPUT_DIM
+    L_TOOLS, VALIDATION_SPLIT, L_PARAMS, \
+    PathConfig, CROP_LEN, OUTPUT_DIM, get_config_args
 
 from load_data.create_dataset import DataSetter, upload_file
 
@@ -115,7 +115,7 @@ if __name__=="__main__":
         """
         명령어 예시: python -m train.best_params_search -m cnn_lstm --name gloss_cnn_lstm_0326 --sr 0.3 --nt 10 --dr y
         """
-        base_parser = get_base_parser()
+        base_parser, _ = get_config_args()
         parser = argparse.ArgumentParser(parents=[base_parser])
         parser.add_argument(
             "-m", "--model",
@@ -143,9 +143,9 @@ if __name__=="__main__":
             choices=['n', 'y']
         )
 
-        o_args = parser.parse_args()
-        print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(o_args).items()), sep='\n')
-        return o_args
+        final_args = parser.parse_args()
+        print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(final_args).items()), sep='\n')
+        return final_args
     args = get_optuna_config()
     # 사용자 옵션
     study_name = args.name

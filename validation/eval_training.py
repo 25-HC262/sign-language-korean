@@ -142,7 +142,7 @@ if __name__=="__main__":
     best_param_file_names = ["transformer-class=33-data=633-trial=10-2026_03_23_04-41.json"]
     best_param_files = [(a, Path(L_PARAMS) / a) for a in best_param_file_names]
 
-    args = get_config_args()
+    _, args = get_config_args()
     pc = PathConfig(args)
 
     for n, f in best_param_files:

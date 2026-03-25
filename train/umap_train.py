@@ -17,7 +17,7 @@ from load_data.create_dataset import upload_file, DataSetter, Trainer
 from src.config import NUM_NODES, EPOCHS_FOR_UMAP, \
     OUTPUT_DIM, LEARNING_RATE_FOR_UMAP, BATCH_SIZE_FOR_UMAP, \
     UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
-    UMAP_OUTPUT_DIM, DROPOUT_RATE_FOR_UMAP, L_UMAP, get_base_parser, PathConfig
+    UMAP_OUTPUT_DIM, DROPOUT_RATE_FOR_UMAP, L_UMAP, PathConfig, get_config_args
 
 
 class DataDimensionReducer:
@@ -210,7 +210,7 @@ def get_model_args():
     명령어 예시: python -m train.umap_train --storage L --lr 0.4 --bs 64 --epochs 120 -n 10000 --tn 3000
     """
     import argparse
-    base_parser = get_base_parser()
+    base_parser, _ = get_config_args()
     parser = argparse.ArgumentParser(parents=[base_parser])
 
     parser.add_argument(

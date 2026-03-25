@@ -9,7 +9,7 @@ from wandb.integration.keras import WandbMetricsLogger
 from src.backbones.cnn_lstm_backbone import get_model
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     NUM_NODES, VALIDATION_SPLIT, \
-    UMAP_OUTPUT_DIM, WEIGHT_DECAY, get_base_parser, PathConfig, OUTPUT_DIM
+    UMAP_OUTPUT_DIM, WEIGHT_DECAY, PathConfig, OUTPUT_DIM, get_config_args
 from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
 
@@ -210,7 +210,7 @@ def get_model_args():
         python -m train.cnn_lstm_train --upload G --lr 0.001 --bs 32 --epochs 200 --cnn 64 --lstm 128 --dr y
     """
     import argparse
-    base_parser = get_base_parser()
+    base_parser, _ = get_config_args()
     parser = argparse.ArgumentParser(parents=[base_parser])
 
     parser.add_argument("--lr", "--learning_rate", type=float, default=LEARNING_RATE)
