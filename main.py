@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ from mediapipe.tasks.python import vision as mp_vision
 import numpy as np
 import tensorflow as tf
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 
 import keras
 from load_data.inference import mediapipe_to_openpose_keypoints, \
@@ -132,6 +134,19 @@ if _VIZ_ENABLED:
             snap["frame"], snap["pose_result"], snap["hand_result"], snap["keypoints"]
         )
         return Response(content=jpeg_bytes, media_type="image/jpeg")
+
+    @app.get("/debug/stream/{user_id}")
+    async def stream_snapshot(user_id: str):
+        async def generate():
+            while True:
+                snap = _viz_snapshots.get(user_id)
+                if snap:
+                    jpeg_bytes = make_validation_image(
+                        snap["frame"], snap["pose_result"], snap["hand_result"], snap["keypoints"]
+                    )
+                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg_bytes + b"\r\n"
+                await asyncio.sleep(0.1)
+        return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
 # === VISUALIZATION END ===
 
 
