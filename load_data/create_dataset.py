@@ -22,7 +22,7 @@ from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SP
     BATCH_SIZE, TEST_RATE, UMAP_OUTPUT_DIM, NUM_CLASSES, \
     L_PREPROCESSED_DATA, MAX_LEN, L_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
     DATA_TYPE, DataDim, DataType, Trainer, get_config_args, PathConfig, L_TEST, \
-    UMAP_LOAD_PATH
+    UMAP_LOAD_PATH, OUTPUT_DIM
 
 
 class DataSetter:
@@ -237,6 +237,8 @@ class TrainDataLoader:
                     compile=False
                 )
             print("UMAP encoder model loaded successfully.")
+            self.output_dim = UMAP_OUTPUT_DIM
+        else: self.output_dim = OUTPUT_DIM
 
         self.videos = []
         self.umap_keypoints_list = []
@@ -256,13 +258,13 @@ class TrainDataLoader:
                 if len(seq) > self.max_len:
                     seq = seq[:self.max_len]
                 else:
-                    padding = np.zeros((self.max_len - len(seq), UMAP_OUTPUT_DIM))
+                    padding = np.zeros((self.max_len - len(seq), self.output_dim))
                     seq = np.concatenate([seq, padding], axis=0)
                 yield seq.astype(np.float32), np.int32(video['class_label'])
         full_dataset = tf.data.Dataset.from_generator(
             _data_generator, # 함수 자체 전달
             output_signature=(
-                tf.TensorSpec(shape=(self.max_len, UMAP_OUTPUT_DIM), dtype=tf.float32),
+                tf.TensorSpec(shape=(self.max_len, self.output_dim), dtype=tf.float32),
                 tf.TensorSpec(shape=(), dtype=tf.int32)
             )
         )
