@@ -46,7 +46,7 @@ class ECA(keras.layers.Layer):
         nn = tf.squeeze(nn, -1)
         nn = tf.nn.sigmoid(nn)
         nn = nn[:,None,:]
-        # nn = ops.cast(nn, inputs.dtype) # inputs의 dtype으로 nn casting - fp16 가속 설정
+        nn = tf.cast(nn, inputs.dtype)
         return inputs * nn
 
     # def build(self, input_shape): # self.conv를 구성함.
