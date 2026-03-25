@@ -487,14 +487,14 @@ class TrainDataLoader:
                                 # 일단 구조 유지를 위해 여기서 처리
                                 keypoints_batch = self.umap_encoder.predict(keypoints_batch, verbose=0)
 
-                                if cls_name in self.label_map:
-                                    self.videos.append({
-                                        'sequence': keypoints_batch,
-                                        'class_label': self.label_map[cls_name]
-                                    })
-                                else:
-                                    # 맵에 없는 클래스는 경고만 띄우고 스킵합니다.
-                                    tqdm.write(f"[Warning] Class '{cls_name}' not found in label_map. Skipping...")
+                            if cls_name in self.label_map:
+                                self.videos.append({
+                                    'sequence': keypoints_batch,
+                                    'class_label': self.label_map[cls_name]
+                                })
+                            else:
+                                # 맵에 없는 클래스는 경고만 띄우고 스킵합니다.
+                                tqdm.write(f"[Warning] Class '{cls_name}' not found in label_map. Skipping...")
                         else: # UMAP용 (전체 프레임 저장)
                             keypoints_list.extend(keypoints_batch)
 
