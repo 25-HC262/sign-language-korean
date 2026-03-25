@@ -18,12 +18,19 @@ from load_data.inference import mediapipe_to_openpose_keypoints, \
     main_preprocess_sequence
 from src.backbone import CausalDWConv1D, ECA, LateDropout, \
     MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN, UMAP_LOAD_PATH
+from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN, get_config_args, PathConfig
 
 logger = logging.getLogger("ksl")
 logging.basicConfig(level=logging.INFO)
 
 _debug = {"enabled": os.environ.get("KSL_DEBUG", "0") == "1"}
+
+# === VISUALIZATION START (KSL_VISUALIZE=1 로 활성화, 삭제 시 END 블록까지 함께 삭제) ===
+_VIZ_ENABLED = os.environ.get("KSL_VISUALIZE", "0") == "1"
+if _VIZ_ENABLED:
+    from fastapi.responses import Response
+    from tools.viz import make_validation_image
+# === VISUALIZATION END ===
 
 # 중복 출력 방지 설정
 PREDICTION_COOLDOWN_SEC = 1.5   # 같은 단어 재출력까지 최소 대기 시간(초)
@@ -86,8 +93,9 @@ except Exception as e:
 
 print("UMAP 인코더 로딩 중...")
 try:
-    umap_encoder = keras.models.load_model(UMAP_LOAD_PATH)
-    print(f"UMAP 인코더 로딩 완료: {UMAP_LOAD_PATH}")
+    _umap_path = PathConfig(get_config_args()).UMAP_LOAD_PATH
+    umap_encoder = keras.models.load_model(_umap_path)
+    print(f"UMAP 인코더 로딩 완료: {_umap_path}")
 except Exception as e:
     print(f"UMAP 인코더 로딩 실패: {e}")
     umap_encoder = None
@@ -107,7 +115,24 @@ async def toggle_debug():
 
 @app.get("/debug/status")
 async def debug_status():
-    return {"debug_enabled": _debug["enabled"]}
+    return {"debug_enabled": _debug["enabled"], "viz_enabled": _VIZ_ENABLED}
+
+# === VISUALIZATION START ===
+# 유저별 마지막 프레임/랜드마크/키포인트 저장소 (KSL_VISUALIZE=1 일 때만 채워짐)
+_viz_snapshots: dict = {}  # user_id → {"frame", "pose_result", "hand_result", "keypoints"}
+
+if _VIZ_ENABLED:
+    @app.get("/debug/snapshot/{user_id}")
+    async def get_snapshot(user_id: str):
+        snap = _viz_snapshots.get(user_id)
+        if snap is None:
+            return Response(content=f"snapshot not found for user '{user_id}'",
+                            media_type="text/plain", status_code=404)
+        jpeg_bytes = make_validation_image(
+            snap["frame"], snap["pose_result"], snap["hand_result"], snap["keypoints"]
+        )
+        return Response(content=jpeg_bytes, media_type="image/jpeg")
+# === VISUALIZATION END ===
 
 
 def _init_user(user_id: str, user_sequences, user_last_label, user_last_emit_time,
@@ -207,6 +232,16 @@ async def websocket_endpoint(websocket: WebSocket):
             # 키포인트 추출 및 시퀀스 추가
             keypoints = mediapipe_to_openpose_keypoints(pose_result, hand_result, image_width, image_height)
             user_sequences[user_id].append(keypoints)
+
+            # === VISUALIZATION START ===
+            if _VIZ_ENABLED:
+                _viz_snapshots[user_id] = {
+                    "frame": rgb_frame,
+                    "pose_result": pose_result,
+                    "hand_result": hand_result,
+                    "keypoints": keypoints,
+                }
+            # === VISUALIZATION END ===
             user_frame_count[user_id] += 1
 
             # 60프레임 + STRIDE마다 예측
