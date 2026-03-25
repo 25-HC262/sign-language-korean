@@ -401,7 +401,7 @@ UMAP_OUTPUT_DIM = 32 # default
 
 # ============== optuna 설정 ==============
 OPTUNA_TRIALS_PATH = "sqlite:///optuna_trials.db" # 로컬 수정 필요
-SUBSET_RATIO = 0.5
+SUBSET_RATIO = 0.4
 OPTUNA_STUDY_NAME = "transformers_optuna_study"
 OPTUNA_MODEL = "transformer"
 N_TRIALS = 20

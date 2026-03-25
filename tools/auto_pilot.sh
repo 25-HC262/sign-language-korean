@@ -16,6 +16,7 @@ do
                     -m transformer \
                     --name "gloss_transformer_0325_${NOW}_${i}" \
                     --sr 0.4 \
+                    --dr n \
                     --nt 10 2>&1 | tee /dev/stderr | grep "RESULT_ARGS:" | tail -n 1 | cut -d':' -f2-)
 
     # 추출 확인
