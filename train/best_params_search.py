@@ -189,7 +189,7 @@ if __name__=="__main__":
     top_num = max(int(n_trials*0.3), 1)
     top_trials = df.sort_values(by="value", ascending=False).head(top_num)
     print(f"--------- Top {top_num} Trials --------- ")
-    print(top_trials[['number', 'value', 'duration', 'params_learning_rate', 'params_batch_size', 'params_num_train_epochs', 'params_weight_decay', 'params_sequence_length']])
+    print(top_trials[['number', 'value', 'duration', 'params_learning_rate', 'params_batch_size', 'params_weight_decay']])
 
     import matplotlib.pyplot as plt
     from optuna.visualization.matplotlib import (
