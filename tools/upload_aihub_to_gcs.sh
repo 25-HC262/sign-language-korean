@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sudo apt install -y p7zip-full jq     # 필수 도구 설치 확인
+#sudo apt install -y p7zip-full jq     # 필수 도구 설치 확인
 
 source .env
 echo "$AIHUB_API_KEY"                  # AIHub에서 신청해야 함
@@ -16,8 +16,9 @@ FILE_NUMBERS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)                           
 # 제외 사유: 이미 보유 중인 33개 데이터
 EXCLUDE_LIST="0019|0021|0033|0035|0067|0109|0111|0133|0145|0181|0183|0185|0187|0189|0191|0193|0195|0197|0354|0355|0356|0357|1045|1613|1771|1773|1775|1940|1945|1976|1978|1999|2000"
 
-DOWNLOAD_PATH="./004.수어영상/1.Training/라벨링데이터/REAL/SEN"
+DOWNLOAD_PATH="/mnt/disks/data/004.수어영상/1.Training/라벨링데이터/REAL/SEN"
 mkdir -p "$DOWNLOAD_PATH"
+echo "0. 현재 pwd가 /mnt/disks/data임을 확인"
 
 # --- aihubshell 준비 ---
 if [ ! -f "aihubshell" ]; then
@@ -39,6 +40,8 @@ for i in "${!FILE_KEYS[@]}"; do                                   # !FILE_KEYS[@
 
     ZIP_FILE="${DOWNLOAD_PATH}/${padded_num}_real_sen_keypoint.zip"
     UNZIPPED_FOLDER="${DOWNLOAD_PATH}/${padded_num}"
+
+    cd /mnt/disks/data
 
     if [ -f "$ZIP_FILE" ]; then
         echo "   Already existing file '$ZIP_FILE'..."
