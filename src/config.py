@@ -344,7 +344,7 @@ def get_umap_args(parent: argparse.ArgumentParser, rest: List[str]) -> Tuple[arg
         명령어 예시: `python -m train.reduction_train --u_dim 64`
     :return:
     """
-    parser = argparse.ArgumentParser(parents=[parent]) # 공통 인자 상속
+    parser = argparse.ArgumentParser(parents=[parent], add_help=False) # 공통 인자 상속
     # 1. umap 축소 차원수 선택 옵션 - args.u_dim에 저장
     parser.add_argument(
         "--u_dim",
@@ -364,7 +364,7 @@ def get_gm_args(parent: argparse.ArgumentParser, rest: List[str])  -> Tuple[argp
         -g 혹은 --gm 혹은 --gloss_model 뒤에 모델명
         명령어 예시: `python -m train.gloss_transformer_train -g "gloss_transformer.keras"` 혹은 `--gt "gloss_transformer.keras"` 혹은 `--gloss_model "gloss_transformer.keras"`
     """
-    parser = argparse.ArgumentParser(parents=[parent])
+    parser = argparse.ArgumentParser(parents=[parent], add_help=False)
     # 1. 차원 축소를 위한 umap 모델 선택 옵션 - args.umap에 저장: 차원 축소를 하지 않을 경우 None일 수 있음; TO-DO
     parser.add_argument(
         "--umap",
