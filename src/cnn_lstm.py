@@ -1,11 +1,11 @@
 # src/cnn_lstm.py
 import importlib
-importlib.import_module("src.config")
+importlib.import_module("src.tf_keras_config")
 import keras
-from .config import CROP_LEN, PAD, NUM_CLASSES, UMAP_OUTPUT_DIM
+from .config import CROP_LEN, PAD, NUM_CLASSES
 
 
-def get_model(max_len=CROP_LEN, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES,
+def get_model(dim: int, max_len=CROP_LEN, num_classes=NUM_CLASSES,
               cnn_channels=64, lstm_units=128, dropout=0.3):
     """
     수어 인식을 위한 CNN+LSTM 모델.

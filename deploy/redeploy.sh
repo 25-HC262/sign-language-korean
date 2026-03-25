@@ -24,7 +24,7 @@ echo "==> [4/5] 기존 컨테이너 중지 및 제거"
 docker stop "$CONTAINER_NAME" 2>/dev/null || true
 docker rm   "$CONTAINER_NAME" 2>/dev/null || true
 
-echo "==> [4/5] 새 컨테이너 시작"
+echo "==> [5/5] 새 컨테이너 시작"
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \

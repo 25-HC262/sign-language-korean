@@ -1,5 +1,5 @@
 import importlib
-importlib.import_module("src.config")
+importlib.import_module("src.tf_keras_config")
 import os
 import pickle
 
@@ -16,13 +16,12 @@ import wandb
 from load_data.create_dataset import upload_file, DataSetter, Trainer
 from src.config import NUM_NODES, EPOCHS_FOR_UMAP, \
     OUTPUT_DIM, LEARNING_RATE_FOR_UMAP, BATCH_SIZE_FOR_UMAP, \
-    WANDB_UMAP_NAME, WANDB_UMAP_PROJECT, WANDB_UMAP_GROUP, WANDB_UMAP_TAGS, \
-    LOAD_UMAP, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
-    UMAP_OUTPUT_DIM, DROPOUT_RATE_FOR_UMAP, LOCAL_PATHS, L_UMAP, names, get_base_parser
+    UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
+    UMAP_OUTPUT_DIM, DROPOUT_RATE_FOR_UMAP, L_UMAP, get_base_parser, PathConfig
 
 
 class DataDimensionReducer:
-    def __init__(self, save_path: str=L_UMAP, storage_save_path: str=LOAD_UMAP, checkpoint_path: str=LOCAL_PATHS["umap_ckpt"],
+    def __init__(self, storage_save_path: str, checkpoint_path: str, save_path: str=L_UMAP,
                  umap_output_dim=UMAP_OUTPUT_DIM, data_num=UMAP_DATA_NUM,
                  epochs=EPOCHS_FOR_UMAP, learning_rate=LEARNING_RATE_FOR_UMAP, dropout_rate=DROPOUT_RATE_FOR_UMAP, batch_size=BATCH_SIZE_FOR_UMAP) -> None:
         # 경로
@@ -95,10 +94,10 @@ class DataDimensionReducer:
         ])
 
         wandb.init(
-            project=WANDB_UMAP_PROJECT,
-            name=WANDB_UMAP_NAME,
-            group=WANDB_UMAP_GROUP,
-            tags=WANDB_UMAP_TAGS,
+            project=pc.WANDB_UMAP_PROJECT,
+            name=pc.WANDB_UMAP_NAME,
+            group=pc.WANDB_UMAP_GROUP,
+            tags=pc.WANDB_UMAP_TAGS,
             job_type="umap-train",
             config={
                 # Training
@@ -177,13 +176,13 @@ class DataDimensionReducer:
         # 2. 저장
         print(f"Saving embedder model in {self.save_path}...")
         try:
-            self.embedder.encoder.save(LOCAL_PATHS["umap_final"])
+            self.embedder.encoder.save(pc.LOCAL_PATHS["umap_final"])
         except Exception as e:
             print(f"embedder 정의한 이름으로 저장하는 도중에 에러 발생: {e}")
 
         # 2-2. Wandb에도 저장
         artifact = wandb.Artifact(
-            name=names["umap"],
+            name=pc.names["umap"],
             type="model",
             description="Trained ParametricUMAP encoder",
             metadata=dict(wandb.config),
@@ -240,9 +239,9 @@ def get_model_args():
         default=TEST_UMAP_DATA_NUM
     )
 
-    args = parser.parse_args()
-    print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(args).items()), sep='\n')
-    return args
+    m_args = parser.parse_args()
+    print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(m_args).items()), sep='\n')
+    return m_args
 
 if __name__ == "__main__":
     # 1. 사용 가능한 GPU 리스트 출력
@@ -257,4 +256,8 @@ if __name__ == "__main__":
             print(f" - GPU [{i}]: {gpu}")
     # 2. 사용자 옵션 받기
     args = get_model_args()
-    DataDimensionReducer().train_reducer()
+    pc = PathConfig(args)
+    DataDimensionReducer(
+        storage_save_path=pc.LOAD_UMAP,
+        checkpoint_path=pc.LOCAL_PATHS["umap_ckpt"]
+    ).train_reducer()

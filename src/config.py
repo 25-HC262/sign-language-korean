@@ -1,32 +1,8 @@
 import argparse
 import datetime
 import json
-import os
-import warnings
-from pathlib import Path
-
-# 1. 경고 차단
-warnings.filterwarnings("ignore", category=UserWarning)
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["KERAS_LOG_LEVEL"] = "3"
-
-# 2. 캐라스-텐서플로우 백엔드 설정
-os.environ["KERAS_BACKEND"] = "tensorflow"
-
-import tensorflow as tf
-
-# 3. GPU 동적 할당
-gpus = tf.config.list_physical_devices('GPU')
-if not gpus:
-    print("WARNING: 지금 GPU가 아니라 CPU를 쓰고 있습니다!")
-else:
-    # 현재 인식된 GPU 개수와 상세 명칭 출력
-    print(f"GPU 사용 중. 현재 사용 가능한 GPU 개수: {len(gpus)}")
-    for i, gpu in enumerate(gpus):
-        print(f" - GPU [{i}]: {gpu}")
-# 1. 경고 설정
-tf.get_logger().setLevel('ERROR')
 from enum import Enum
+from pathlib import Path
 from typing import List
 
 # ============= 데이터를 위한 클래스 =============
@@ -49,10 +25,85 @@ class Trainer(Enum):
     GM = "gm"
     UMAP = "umap"
 
-# ============= KOREAN SIGN LANGUAGE SENTENCES =============
+# TO-DO: 기본 버킷명으로 통일
+# 경로 관련
+
 # 경로 안정화
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 
+base_map = {
+    "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints", "gs://test-openpose-keypoint", "gs://trout-models/data/tools", "gs://trout-models/data/processed"),
+    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints", "s3://test-openpose-keypoints", "s3://trout-models/data/tools", "s3://trout-models/data/processed"),
+    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints", "data/test-openpose-keypoints", "tools/", "data/processed")
+}
+date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
+
+L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST, L_TOOLS, L_PREPROCESSED_DATA = (PROJECT_ROOT / p for p in base_map['L']) # 로컬 베이스는 항상 필요
+L_PARAMS = L_GM / "best_params"
+for p in [L_CKPT, L_GM, L_UMAP, L_TOOLS, L_TEST, L_PARAMS]:
+    p.mkdir(parents=True, exist_ok=True)
+
+class PathConfig:
+    def __init__(self, args):
+        # 1. 실행 시점의 인자값 확정
+        self.TRAINER = args.trainer
+        self.STORAGE_MODE = args.storage
+        self.UPLOAD_MODE = args.upload
+        self.UMAP_MODEL = getattr(args, 'umap', 'encoder.keras')
+        self.KEYPOINT_DIM = getattr(args, 'kpt_dim', 2) # default 2
+        self.GM_MODEL = getattr(args, 'gm', "gloss_transformer_2026_02_26_06-07.keras")
+        self.SELECTED_GM_TYPE = getattr(args, 'gmt', "transformer")
+        self.UMAP_OUTPUT_DIM = getattr(args, 'u_dim', 32)
+        self.UMAP_MODEL = getattr(args, 'umap', 'encoder.keras')
+
+        # 새로운 모델 저장
+        self.names = {
+            "gm": f"gloss_{self.SELECTED_GM_TYPE}_{date_idx}",
+            "umap": f"umap_encoder_{date_idx}-dim-{self.UMAP_OUTPUT_DIM}"
+        }
+        files = {
+            "gm_keras": f"{self.names['gm']}.keras", # .h5보다 .keras가 권장되므로 .keras로 통일할 것.
+            "optuna_gm_keras": f"optuna-{self.names['gm']}.keras",
+            "gm_tflite": f"{self.names['gm']}.tflite",
+            "umap_ckpt": f"{self.names['umap']}-dim-{self.UMAP_OUTPUT_DIM}.weights.h5",
+            "umap_keras": f"{self.names['umap']}.keras"
+        }
+
+        # LOAD_BASE: 사용자 선택 모드(UPLOAD_MODE)에서 가져옴
+        self.LOAD_DATA, self.LOAD_UMAP, self.LOAD_GM, _, self.LOAD_TEST, self.LOAD_TOOLS, self.LOAD_PREPROCESSED_DATA = base_map.get(self.UPLOAD_MODE, base_map['L'])
+
+        # 최종 경로
+        self.UMAP_LOAD_PATH = f'{self.LOAD_UMAP}/{self.UMAP_MODEL}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
+        self.GM_LOAD_PATH = f'{self.LOAD_GM}/{self.GM_MODEL}'       # 프로젝트에 사용되는 최적 GLOSS MODEL
+
+        # 저장 경로
+        self.LOCAL_PATHS = {
+            "gm_ckpt": f"{L_CKPT}/{files['gm_keras']}",
+            "optuna_gm_ckpt": f"{L_CKPT}/{files['optuna_gm_keras']}",
+            "gm_final": f"{L_GM}/{files['gm_keras']}",
+            "gm_tflite": f"{L_GM}/{files['gm_tflite']}",
+            "umap_ckpt": f"{L_CKPT}/{files['umap_ckpt']}",
+            "umap_final": f"{L_UMAP}/{files['umap_keras']}"
+        }
+
+        # ============== 학습을 위한 모델 설정 ==============
+        self.CHANNELS = self.KEYPOINT_DIM * NUM_NODES  # x, y for each point
+        self.OUTPUT_DIM = self.CHANNELS
+
+        # ============== WandB 설정 ==============
+        self.WANDB_GM_PROJECT = f"grad-gloss-{self.SELECTED_GM_TYPE}-training"
+        self.WANDB_GM_NAME = f"gloss-{self.SELECTED_GM_TYPE}-{date_idx}"
+        self.WANDB_UMAP_PROJECT = f"grad-umap-training"
+        self.WANDB_UMAP_NAME = f"umap-{date_idx}"
+
+        # ========= WandB run organization (grouping & tagging) 설정 =========
+        self.WANDB_GM_GROUP = self.SELECTED_GM_TYPE
+        self.WANDB_UMAP_GROUP = "umap"
+        self.WANDB_GM_TAGS = [self.SELECTED_GM_TYPE, f"dim{self.OUTPUT_DIM}", f"classes{NUM_CLASSES}"]
+        self.WANDB_UMAP_TAGS = ["umap", f"dim{self.OUTPUT_DIM}"]
+
+# ============= KOREAN SIGN LANGUAGE SENTENCES =============
 # 라벨링 데이터
 label_map_name = "label_map.json"
 LABEL_MAP_PATH = PROJECT_ROOT / "src" / label_map_name
@@ -264,7 +315,7 @@ def get_base_parser():
     parser.add_argument(
         "-u", "--upload",
         choices=["L", "S", "G"],
-        default="L",
+        default="G",
         help="Storage type: L(Local), S(S3), G(GCS)"
     )
     # 3. keypoint 차원수 선택 옵션 - args.kpt_dim에 저장
@@ -324,7 +375,7 @@ def get_gm_args(parent: argparse.ArgumentParser, rest: List[str]):
     # 2. main 사용 gloss 모델 선택 옵션 - args.gm에 저장
     parser.add_argument(
         "-g", "--gm", "--gloss_model",
-        default="sign_language_v1.h5"
+        default="gloss_transformer_2026_02_26_06-07.keras"
     )
     # 3. gloss 모델 종류 선택 옵션 - args.gmt 저장
     parser.add_argument(
@@ -334,80 +385,20 @@ def get_gm_args(parent: argparse.ArgumentParser, rest: List[str]):
     args, _ = parser.parse_known_args(rest)
     return args
 
-args = get_config_args()
-STORAGE_MODE = args.storage
-UPLOAD_MODE = args.upload
-GM_MODEL = getattr(args, 'gm', "sign_language_v1.h5")
-SELECTED_GM_TYPE = getattr(args, 'gmt', "transformer")
-KEYPOINT_DIM = getattr(args, 'kpt_dim', 2) # default 2
-UMAP_OUTPUT_DIM = getattr(args, 'u_dim', 32) # default 32
-UMAP_MODEL = getattr(args, 'umap', 'encoder.keras')
-
-date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
-
-"""TO-DO: 기본 버킷명으로 통일"""
-# 테스트 폴더 추가할 것!
-base_map = {
-    "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints", "gs://test-openpose-keypoint"),
-    "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints", "s3://test-openpose-keypoints"),
-    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints", "data/test-openpose-keypoints")
-}
-# 새로운 모델 저장
-names = {
-    "gm": f"gloss_{SELECTED_GM_TYPE}_{date_idx}",
-    "umap": f"umap_encoder_{date_idx}-dim-{UMAP_OUTPUT_DIM}"
-}
-files = {
-    "gm_keras": f"{names['gm']}.keras", # .h5보다 .keras가 권장되므로 .keras로 통일할 것.
-    "optuna_gm_keras": f"optuna-{names['gm']}.keras",
-    "gm_tflite": f"{names['gm']}.tflite",
-    "umap_ckpt": f"{names['umap']}-dim-{UMAP_OUTPUT_DIM}.weights.h5",
-    "umap_keras": f"{names['umap']}.keras"
-}
-
-# 로컬 베이스는 항상 필요
-L_DATA, L_UMAP, L_GM, L_CKPT, L_TEST = (PROJECT_ROOT / p for p in base_map['L'])
-L_TOOLS = PROJECT_ROOT / "tools"
-L_PARAMS = L_GM / "best_params"
-for p in [L_CKPT, L_GM, L_UMAP, L_TOOLS, L_TEST, L_PARAMS]:
-    p.mkdir(parents=True, exist_ok=True)
-L_PREPROCESSED_DATA = PROJECT_ROOT / "data" / "processed"
-print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
-
-# LOAD_BASE: 사용자 선택 모드(UPLOAD_MODE)에서 가져옴
-LOAD_DATA, LOAD_UMAP, LOAD_GM, _, LOAD_TEST = base_map.get(UPLOAD_MODE, base_map['L'])
-
 # 최종 경로
-UMAP_LOAD_PATH = f'{LOAD_UMAP}/{UMAP_MODEL}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
-GM_LOAD_PATH = f'{LOAD_GM}/{GM_MODEL}'       # 프로젝트에 사용되는 최적 GLOSS MODEL
-
-# 저장 경로
-LOCAL_PATHS = {
-    "gm_ckpt": f"{L_CKPT}/{files['gm_keras']}",
-    "optuna_gm_ckpt": f"{L_CKPT}/{files['optuna_gm_keras']}",
-    "gm_final": f"{L_GM}/{files['gm_keras']}",
-    "gm_tflite": f"{L_GM}/{files['gm_tflite']}",
-    "umap_ckpt": f"{L_CKPT}/{files['umap_ckpt']}",
-    "umap_final": f"{L_UMAP}/{files['umap_keras']}"
-}
+UMAP_MODEL = 'encoder.keras'
+KEYPOINT_DIM = 2 # default 2
+GM_MODEL = "gloss_transformer_2026_02_26_06-07.keras"
+UMAP_LOAD_PATH = f'{L_UMAP}/{UMAP_MODEL}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
+GM_LOAD_PATH = f'{L_GM}/{GM_MODEL}'       # 프로젝트에 사용되는 최적 GLOSS MODEL
 
 # ============== 학습을 위한 모델 설정 ==============
 DATA_TYPE = DataType.GLOSS # default
 NUM_NODES = len(POINT_LANDMARKS) # 49
-CHANNELS = KEYPOINT_DIM * NUM_NODES  # x, y for each point
+CHANNELS = KEYPOINT_DIM * NUM_NODES  # x, y OR x, y, z for each point
 OUTPUT_DIM = CHANNELS
+UMAP_OUTPUT_DIM = 32 # default
 
-# ============== WandB 설정 ==============
-WANDB_GM_PROJECT = f"grad-gloss-{SELECTED_GM_TYPE}-training"
-WANDB_GM_NAME = f"gloss-{SELECTED_GM_TYPE}-{date_idx}"
-WANDB_UMAP_PROJECT = f"grad-umap-training"
-WANDB_UMAP_NAME = f"umap-{date_idx}"
-
-# ========= WandB run organization (grouping & tagging) 설정 =========
-WANDB_GM_GROUP = SELECTED_GM_TYPE
-WANDB_UMAP_GROUP = "umap"
-WANDB_GM_TAGS = [SELECTED_GM_TYPE, f"dim{OUTPUT_DIM}", f"classes{NUM_CLASSES}"]
-WANDB_UMAP_TAGS = ["umap", f"dim{OUTPUT_DIM}"]
 # ============== optuna 설정 ==============
 OPTUNA_TRIALS_PATH = "sqlite:///optuna_trials.db" # 로컬 수정 필요
 SUBSET_RATIO = 0.5
@@ -417,6 +408,6 @@ N_TRIALS = 20
 
 if __name__ == "__main__":
     print(f"Number of selected keypoints: {NUM_NODES}")
-    print(f"Feature dimension: {CHANNELS}")
+    print(f"[DEFAULT] Feature dimension: {CHANNELS}")
     print(f"Number of classes: {len(KSL_SENTENCES)}")
-    print(f"Expected model input shape: ({CROP_LEN}, {CHANNELS})")
+    print(f"[DEFAULT] Expected model input shape: ({CROP_LEN}, {CHANNELS})")

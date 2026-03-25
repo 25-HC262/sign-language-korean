@@ -1,8 +1,6 @@
 import importlib
-importlib.import_module("src.config")
-
+importlib.import_module("src.tf_keras_config")
 from pathlib import Path
-
 import tensorflow as tf
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
@@ -12,22 +10,20 @@ from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
 from src.backbone import get_model, TFLiteModel
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
-    LOCAL_PATHS, LOAD_GM, UMAP_OUTPUT_DIM, WEIGHT_DECAY, UMAP_LOAD_PATH, SELECTED_GM_TYPE, \
-    WANDB_GM_PROJECT, WANDB_GM_NAME, WANDB_GM_GROUP, \
-    WANDB_GM_TAGS, get_base_parser, VALIDATION_SPLIT, CHANNELS, NUM_NODES, STORAGE_MODE
-
+    UMAP_OUTPUT_DIM, WEIGHT_DECAY, get_base_parser, \
+    PathConfig, VALIDATION_SPLIT, NUM_NODES
 
 def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_size: int=BATCH_SIZE, weight_decay: float=WEIGHT_DECAY,
                 max_sequence_len: int=CROP_LEN
                 ):
     import keras
-    keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
+    # keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
 
     wandb.init(
-        project=WANDB_GM_PROJECT,
-        name=WANDB_GM_NAME,
-        group=WANDB_GM_GROUP,
-        tags=WANDB_GM_TAGS,
+        project=pc.WANDB_GM_PROJECT,
+        name=pc.WANDB_GM_NAME,
+        group=pc.WANDB_GM_GROUP,
+        tags=pc.WANDB_GM_TAGS,
         job_type="train",
         config={
             # Training
@@ -37,9 +33,9 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
             "validation_split": VALIDATION_SPLIT,
             "optimizer": "adam",
             # Model architecture
-            "model_type": SELECTED_GM_TYPE,
+            "model_type": pc.SELECTED_GM_TYPE,
             "max_len": max_sequence_len,
-            "input_channels": CHANNELS,
+            "input_channels": pc.CHANNELS,
             "conv_dim": UMAP_OUTPUT_DIM,
             "kernel_size": 17,
             "num_heads": 4, # TO-DO: backbone.py에서 실제로 가져오도록 수정
@@ -59,12 +55,12 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
             "lr_reduce_factor": 0.5,
             "min_lr": 1e-6,
             # Environment
-            "storage_mode": STORAGE_MODE,
+            "storage_mode": pc.STORAGE_MODE,
         }
     )
     print("\nLoading training data...")
     train_dataset, val_dataset, test_dataset = DataSetter(
-        umap_path=UMAP_LOAD_PATH,
+        umap_path=pc.UMAP_LOAD_PATH,
         max_seq_len=max_sequence_len,
         batch_size=batch_size,
         dim_reduction=True
@@ -72,7 +68,7 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
 
     # 1. 모델 생성
     print("\nCreating model...")
-    model = get_model(max_len=max_sequence_len, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES)
+    model = get_model(max_len=max_sequence_len, dropout_step=0, dim=pc.UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES)
     model.compile(
         optimizer=keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay),
         loss=keras.losses.SparseCategoricalCrossentropy(),
@@ -91,7 +87,7 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
         verbose=1,
         callbacks=[
             keras.callbacks.ModelCheckpoint(
-                LOCAL_PATHS["gm_ckpt"],
+                pc.LOCAL_PATHS["gm_ckpt"],
                 monitor='val_loss',
                 save_best_only=True,
                 save_weights_only=False,
@@ -116,61 +112,63 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
 
     # 3. 모델 저장
     print("\nSaving model...")
-    model.save(LOCAL_PATHS["gm_final"])
-    upload_file(local_root_path=str(Path(LOCAL_PATHS["gm_final"]).parent), upload_path=LOAD_GM, file_name=str(Path(Path(LOCAL_PATHS["gm_final"]).name)))
+    final_model_path = Path(pc.LOCAL_PATHS["gm_final"])
+    model.save(str(final_model_path))
+    upload_file(local_root_path=str(final_model_path.parent), upload_path=pc.LOAD_GM, file_name=str(final_model_path.name))
 
     artifact = wandb.Artifact(
-        name=f"gloss-{SELECTED_GM_TYPE}-model",
+        name=f"gloss-{pc.SELECTED_GM_TYPE}-model",
         type="model",
-        description=f"Trained gloss {SELECTED_GM_TYPE} model",
+        description=f"Trained gloss {pc.SELECTED_GM_TYPE} model",
         metadata=dict(wandb.config),
     )
-    artifact.add_file(LOCAL_PATHS["gm_final"])
+    artifact.add_file(pc.LOCAL_PATHS["gm_final"])
     wandb.log_artifact(artifact)
 
     # 4. 경량화 모델 변환
-    keras.mixed_precision.set_global_policy("float32") # tflite casting 가능하도록
-    fp32_model = keras.models.load_model(LOCAL_PATHS["gm_final"])
-
-    print("Converting to TFLite...")
-    tflite_model = TFLiteModel(fp32_model)  # Pass single model, not list
-
-    concrete_input_signature = tf.TensorSpec(
-        shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
-        dtype=tf.float32,
-        name='inputs'
-    )
-    concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
-    converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function], tflite_model)
-    converter.target_spec.supported_ops = [
-        tf.lite.OpsSet.TFLITE_BUILTINS, # 기본 TFLite 연산
-        tf.lite.OpsSet.SELECT_TF_OPS    # [추가] 부족한 연산을 TF에서 가져오는 'Flex' 기능 활성화
-    ]
-    converter._experimental_lower_tensor_list_ops = False # 텐서 리스트 연산의 자동 낮추기 처리 비활성화
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-
-    try:
-        tflite_quant_model = converter.convert()
-        # 7. 경량화 모델 저장
-        with open(LOCAL_PATHS["gm_tflite"], 'wb') as f:
-            f.write(tflite_quant_model)
-        print("TFLite model saved successfully!")
-        upload_file(local_root_path=str(Path(LOCAL_PATHS["gm_tflite"]).parent), upload_path=LOAD_GM, file_name=str(Path(LOCAL_PATHS["gm_tflite"]).name))
-
-        tflite_artifact = wandb.Artifact(
-            name=f"gloss-{SELECTED_GM_TYPE}-tflite",
-            type="model",
-            description=f"TFLite-converted gloss {SELECTED_GM_TYPE} model",
-            metadata=dict(wandb.config),
-        )
-        tflite_artifact.add_file(LOCAL_PATHS["gm_tflite"])
-        wandb.log_artifact(tflite_artifact)
-    except Exception as e:
-        print(f"Warning: TFLite conversion failed: {e}")
+    # try:
+    #     # keras.mixed_precision.set_global_policy("float32") # tflite casting 가능하도록
+    #     # fp32_model = keras.models.load_model(LOCAL_PATHS["gm_final"])
+    #
+    #     print("Converting to TFLite...")
+    #     tflite_model = TFLiteModel(model)  # Pass single model, not list
+    #
+    #     concrete_input_signature = tf.TensorSpec(
+    #         shape=[1, max_sequence_len, UMAP_OUTPUT_DIM],  # (배치=1, 최대프레임=max_sequence_len, 채널=umap_dimension)
+    #         dtype=tf.float32,
+    #         name='inputs'
+    #     )
+    #     concrete_function = tflite_model.__call__.get_concrete_function(concrete_input_signature)
+    #     converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function], tflite_model)
+    #     converter.target_spec.supported_ops = [
+    #         tf.lite.OpsSet.TFLITE_BUILTINS, # 기본 TFLite 연산
+    #         tf.lite.OpsSet.SELECT_TF_OPS    # [추가] 부족한 연산을 TF에서 가져오는 'Flex' 기능 활성화
+    #     ]
+    #     converter._experimental_lower_tensor_list_ops = False # 텐서 리스트 연산의 자동 낮추기 처리 비활성화
+    #     converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    #
+    #     tflite_quant_model = converter.convert()
+    #     # 7. 경량화 모델 저장
+    #     with open(pc.LOCAL_PATHS["gm_tflite"], 'wb') as f:
+    #         f.write(tflite_quant_model)
+    #     print("TFLite model saved successfully!")
+    #     upload_file(local_root_path=str(Path(pc.LOCAL_PATHS["gm_tflite"]).parent), upload_path=pc.LOAD_GM, file_name=str(Path(pc.LOCAL_PATHS["gm_tflite"]).name))
+    #
+    #     tflite_artifact = wandb.Artifact(
+    #         name=f"gloss-{pc.SELECTED_GM_TYPE}-tflite",
+    #         type="model",
+    #         description=f"TFLite-converted gloss {pc.SELECTED_GM_TYPE} model",
+    #         metadata=dict(wandb.config),
+    #     )
+    #     tflite_artifact.add_file(pc.LOCAL_PATHS["gm_tflite"])
+    #     wandb.log_artifact(tflite_artifact)
+    # except Exception as e:
+    #     print(f"Warning: TFLite conversion failed: {e}")
 
     print("Training completed!")
 
     # 5. 모델 평가
+    print(f"Test dataset size: {len(list(test_dataset)) if hasattr(test_dataset, '__len__') else 'Unknown'}")
     eval_results = model.evaluate(test_dataset, return_dict=True)
     print("Model Test Results: ")
     print(*(f"  > {k}: {v:.3f}" for k, v in eval_results.items()), sep='\n')
@@ -223,5 +221,6 @@ def get_model_args():
 if __name__ == "__main__":
     # 1. 사용자 옵션 받기
     args = get_model_args()
+    pc = PathConfig(args)
     # 2. 모델 학습
-    history = train_model(learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl)
+    train_model(learning_rate=args.lr, batch_size=args.bs, epochs=args.epochs, weight_decay=args.wd, max_sequence_len=args.msl)

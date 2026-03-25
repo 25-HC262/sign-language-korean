@@ -1,5 +1,5 @@
 import importlib
-importlib.import_module("src.config")
+importlib.import_module("src.tf_keras_config")
 import json
 import os
 import random
@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Dict, Any, Tuple
 from typing import Union, Type
 from urllib.parse import urlparse
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 import keras
@@ -17,9 +19,11 @@ from google.cloud import storage
 from tqdm import tqdm
 
 from src.config import KSL_SENTENCES, POINT_LANDMARKS, DIRECTIONS, VALIDATION_SPLIT, CROP_LEN, \
-    BATCH_SIZE, UMAP_LOAD_PATH, TEST_RATE, UMAP_OUTPUT_DIM, UPLOAD_MODE, NUM_CLASSES, \
-    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, LOAD_TEST, LOAD_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
-    KEYPOINT_DIM, DATA_TYPE, DataDim, DataType, Trainer
+    BATCH_SIZE, TEST_RATE, UMAP_OUTPUT_DIM, NUM_CLASSES, \
+    L_PREPROCESSED_DATA, MAX_LEN, L_DATA, UMAP_DATA_NUM, TEST_UMAP_DATA_NUM, \
+    DATA_TYPE, DataDim, DataType, Trainer, get_config_args, PathConfig, L_TEST, \
+    UMAP_LOAD_PATH
+
 
 class DataSetter:
     def __init__(self, umap_path: str=None, # num_classes: int=NUM_CLASSES, # 전역변수로 이미 관리 중.
@@ -34,6 +38,9 @@ class DataSetter:
         :param trainer:
         :param max_seq_len:
         """
+        args = get_config_args()
+        pc = PathConfig(args)
+
         self.max_seq_len = max_seq_len
         self.batch_size = batch_size
 
@@ -70,7 +77,7 @@ class DataSetter:
             return batch_finalize(ds=ds, target_batch_size=self.batch_size)
 
         data_type = to_enum(DataType, DATA_TYPE)
-        data_dim = to_enum(DataDim, KEYPOINT_DIM)
+        data_dim = to_enum(DataDim, pc.KEYPOINT_DIM)
         self.trainer = to_enum(Trainer, trainer)
 
         # 경로 설정
@@ -86,8 +93,9 @@ class DataSetter:
         test_path = dir_path / "test_ds"
 
         loader_args = {
-            "data_path": LOAD_DATA,
+            "data_path": L_DATA,
             "trainer": trainer,
+            "test_data_path": pc.LOAD_TEST,
             "dim_reduction": dim_reduction,
             "umap_path": umap_path
         }
@@ -136,6 +144,9 @@ class DataSetter:
                     tf.data.Dataset.save(val_ds, str(val_path))
                     tf.data.Dataset.save(test_ds, str(test_path))
 
+                    print(f"[*] 생성된 데이터셋을 클라우드로 업로드합니다... (Path: {dir_path.name})")
+                    upload_file(local_root_path=str(dir_path), upload_path=pc.LOAD_PREPROCESSED_DATA, file_name=None)
+
                     # [현재 사용 가공] 생성된 ds는 배치된 상태이므로 unbatch() 후 자르기
                     return (
                         seq_and_batch_finalize(train_ds),
@@ -156,7 +167,10 @@ class DataSetter:
                     np.save(val_file, val_ds)
                     np.save(test_file, test_ds)
 
-                    # [리턴]
+                    print(f"[*] 생성된 데이터셋을 클라우드로 업로드합니다... (Path: {dir_path.name})")
+                    upload_file(local_root_path=str(dir_path), upload_path=pc.LOAD_PREPROCESSED_DATA, file_name=None)
+
+                # [리턴]
                     return train_ds, val_ds, test_ds
 
             except Exception as e:
@@ -168,11 +182,39 @@ class DataSetter:
 
         self.final_datasets = get_or_create_datasets_from_path() # train, val, test
 
+    def print_dataset_info(self, datasets: Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], Tuple[np.ndarray, np.ndarray, np.ndarray]], title="Dataset Info"):
+        """
+        Dataset(TF) 또는 Numpy 배열의 정보를 통합하여 출력하는 헬퍼 함수
+        """
+        print(f"\n{'='*20} {title} {'='*20}")
+        names = ["Train", "Val", "Test"]
+
+        for name, ds in zip(names, datasets):
+            # 1. Numpy 배열인 경우
+            if isinstance(ds, np.ndarray):
+                print(f"[*] {name:5}: Type=Numpy, Shape={ds.shape}, Dtype={ds.dtype}")
+
+            # 2. tf.data.Dataset인 경우
+            elif isinstance(ds, tf.data.Dataset):
+                # 개수 확인 (알 수 없는 경우 -2 반환)
+                count = ds.cardinality().numpy()
+                count_str = count if count >= 0 else "Unknown"
+
+                # 형상 확인 (하나의 배치/요소를 꺼내서 확인)
+                try:
+                    # element_spec을 통해 전체적인 구조 확인 가능
+                    spec = ds.element_spec
+                    print(f"[*] {name:5}: Type=TF.Dataset, Count={count_str}, Spec={spec}")
+                except Exception:
+                    print(f"[*] {name:5}: Type=TF.Dataset, Count={count_str}")
+        print(f"{'='*50}\n")
+
     def get_datasets(self) -> Union[Tuple[tf.data.Dataset,tf.data.Dataset,tf.data.Dataset], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        self.print_dataset_info(self.final_datasets)
         return self.final_datasets
 
 class TrainDataLoader:
-    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=LOAD_TEST, umap_path=None, umap_data_num=None, test_umap_data_num=None, dim_reduction=False):
+    def __init__(self, trainer: Trainer=Trainer.GM, data_path=L_DATA, test_data_path=L_TEST, umap_path=None, umap_data_num=None, test_umap_data_num=None, dim_reduction=False):
         self.data_path = data_path
         self.test_data_path = test_data_path
         self.umap_path = umap_path
@@ -282,7 +324,7 @@ class TrainDataLoader:
     # 훈련 data 혹은 test data를 가져옴.
     # dim_reduction에 따라 데이터 차원축소를 하거나 하지 않음.
     def _get_all_filepaths(self, umap_data_num: int=None, path=None):
-        path = self.data_path if path is None else path
+        path = str(self.data_path) if path is None else str(path)
         print(f"\nStarting data loading from: {path}")
 
         is_s3 = path.startswith('s3://')
@@ -294,9 +336,11 @@ class TrainDataLoader:
             self.s3_prefix = parsed_s3_path.path.lstrip('/')
             self.s3_client = boto3.client('s3')
         if is_gcs:
+            self._load_data_from_gcs_fast(path, umap_data_num)
+            return
+
             parsed_path = urlparse(path)
-            self.gcs_bucket_name = parsed_path.netloc
-            self.gcs_prefix = parsed_path.path.lstrip('/')
+            self.gcs_bucket_name = str(parsed_path.netloc)
             self.gcs_client = storage.Client()
             self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
 
@@ -312,7 +356,7 @@ class TrainDataLoader:
                         direction_dir = f"{self.s3_prefix}/{folder_name}/{folder_name}_{direction}"
                         person_paths = self._list_s3_subdirs(direction_dir)
                     elif is_gcs:
-                        direction_dir = f"{self.gcs_prefix}/{folder_name}/{folder_name}_{direction}/"
+                        direction_dir = f"{folder_name}/{folder_name}_{direction}/"
                         person_paths = self._list_gcs_subdirs(direction_dir)
                     else:
                         base_path = Path(path)
@@ -366,6 +410,98 @@ class TrainDataLoader:
             random_keypoints_list = random.sample(keypoints_list, umap_data_num)
             self.umap_keypoints_list = np.array(random_keypoints_list, dtype=np.float32)
             del random_keypoints_list, keypoints_list
+
+    def _load_data_from_gcs_fast(self, path, umap_data_num=None):
+        parsed_path = urlparse(path)
+        self.gcs_bucket_name = parsed_path.netloc
+        self.gcs_prefix = parsed_path.path.lstrip('/')
+
+        self.gcs_client = storage.Client()
+        self.gcs_bucket = self.gcs_client.bucket(self.gcs_bucket_name)
+
+        def fetch_class_blobs(cls_name):
+            # 예: gs://test-openpose-keypoint/NIA_SL_SEN0001/
+            target_prefix = f"{self.gcs_prefix}/{cls_name}/".replace("//", "/").lstrip("/")
+            return list(self.gcs_client.list_blobs(self.gcs_bucket_name, prefix=target_prefix))
+
+        # 1. 특정 클래스 파일 목록 한 번에 가져오기 (가장 중요한 최적화)
+        print(f"[*] Fetching metadata from GCS for {len(KSL_SENTENCES)} target classes...")
+        all_blobs = []
+        with ThreadPoolExecutor(max_workers=10) as list_executor:
+            results = list(list_executor.map(fetch_class_blobs, KSL_SENTENCES.keys()))
+            for res in results:
+                all_blobs.extend(res)
+        print(f"[*] Filtered blobs count: {len(all_blobs)} (Found only target classes)")
+
+        # 2. 파일들을 구조화: {클래스: {방향: {사람ID: [파일리스트]}}}
+        # GCS 경로 예시: data/SENTENCE_01/SENTENCE_01_D/REAL_01_D/frame_01_keypoints.json
+        structured_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+
+        all_json_files = [] # UMAP용 전체 리스트
+
+        for blob in all_blobs:
+            if not blob.name.endswith('_keypoints.json'): continue
+
+            parts = blob.name.replace(self.gcs_prefix, "").strip("/").split("/")
+            if len(parts) < 4: continue # 경로 구조 확인 (class/dir/person/file)
+
+            cls, direction, person, filename = parts[0], parts[1], parts[2], parts[3]
+            file_url = f"gs://{self.gcs_bucket_name}/{blob.name}"
+            structured_data[cls][direction][person].append(file_url)
+            all_json_files.append(file_url)
+
+        # 3. 병렬 다운로드 함수 정의
+        def load_frame(url):
+            try:
+                return self._load_json_from_path(tf.constant(url)).reshape(-1)
+            except:
+                return None
+
+        # 4. 데이터셋 구성
+        self.videos = []
+        keypoints_list = [] # UMAP용
+
+        print(f"[*] Found {len(structured_data)} classes. Starting parallel download...")
+
+        # ThreadPoolExecutor로 병렬 처리 (네트워크 I/O 병목 해소)
+        with ThreadPoolExecutor(max_workers=32) as executor: # L4 사양이면 32~64도 거뜬합니다
+            for cls_name, directions in tqdm(structured_data.items(), desc="Processing Classes"):
+                for dir_name, persons in directions.items():
+                    for person_id, file_list in persons.items():
+                        # 정렬 (프레임 순서 유지)
+                        sorted_files = sorted(file_list)
+
+                        # 병렬로 프레임 읽기
+                        results = list(executor.map(load_frame, sorted_files))
+                        keypoints_batch = [r for r in results if r is not None]
+
+                        if not keypoints_batch: continue
+
+                        # 수치화 및 저장
+                        if self.trainer is Trainer.GM:
+                            keypoints_batch = np.array(keypoints_batch)
+                            if self.dim_reduction:
+                                # predict는 GPU 연산이므로 루프 밖이나 배치로 처리하는 게 좋지만,
+                                # 일단 구조 유지를 위해 여기서 처리
+                                keypoints_batch = self.umap_encoder.predict(keypoints_batch, verbose=0)
+
+                                if cls_name in self.label_map:
+                                    self.videos.append({
+                                        'sequence': keypoints_batch,
+                                        'class_label': self.label_map[cls_name]
+                                    })
+                                else:
+                                    # 맵에 없는 클래스는 경고만 띄우고 스킵합니다.
+                                    tqdm.write(f"[Warning] Class '{cls_name}' not found in label_map. Skipping...")
+                        else: # UMAP용 (전체 프레임 저장)
+                            keypoints_list.extend(keypoints_batch)
+
+        # 5. UMAP 후처리
+        if self.trainer is Trainer.UMAP and keypoints_list:
+            target_num = umap_data_num if umap_data_num else self.umap_data_num
+            sampled = random.sample(keypoints_list, min(len(keypoints_list), target_num))
+            self.umap_keypoints_list = np.array(sampled, dtype=np.float32)
+            print(f"[*] UMAP dataset created with {len(self.umap_keypoints_list)} frames.")
 
     # 과거 umap 데이터 구성에 사용
     # 개별 키포인트 파일 경로의 묶음을 리턴함
@@ -468,30 +604,24 @@ class TrainDataLoader:
 
         return selected_keypoints.astype(np.float32) # (49, 2)
 
-    def _load_json_from_path(self, file_path_tensor: tf.Tensor) -> np.ndarray:
-        file_path = file_path_tensor.numpy().decode('utf-8')
+    def _load_json_from_path(self, file_path: str) -> np.ndarray:
+        # file_path = file_path_tensor.numpy().decode('utf-8')
+        # 만약 텐서가 들어온 경우를 대비한 안전장치
+        if hasattr(file_path, "numpy"):
+            file_path = file_path.numpy().decode('utf-8')
         try:
-            if file_path.startswith('s3://'):
-                parsed_s3_path = urlparse(file_path)
-                s3_object = self.s3_client.get_object(
-                    Bucket=parsed_s3_path.netloc,
-                    Key=parsed_s3_path.path.lstrip('/')
-                )
-                file_content = s3_object['Body'].read().decode('utf-8')
-                data = json.loads(file_content)
-            elif file_path.startswith('gs://'):
-                parsed_gcs_path = urlparse(file_path)
-
-                gcs_bucket_name = parsed_gcs_path.netloc
-                blob_name = parsed_gcs_path.path.lstrip('/')
-
-                gcs_bucket = self.gcs_client.bucket(gcs_bucket_name)
-
-                blob = gcs_bucket.blob(blob_name)
-                file_content = blob.download_as_text()
-                data = json.loads(file_content) # 'utf-8' 설정 디폴트
+            if file_path.startswith('gs://'):
+                blob_name = file_path.replace(f"gs://{self.gcs_bucket_name}/", "")
+                blob = self.gcs_bucket.blob(blob_name)
+                content = blob.download_as_bytes() # download_as_bytes()가 download_as_text()보다 약간 더 빠를 수 있음
+                data = json.loads(content)
+            elif file_path.startswith('s3://'):
+                bucket_name = self.s3_bucket
+                key = file_path.replace(f"s3://{bucket_name}/", "")
+                response = self.s3_client.get_object(Bucket=bucket_name, Key=key)
+                data = json.loads(response['Body'].read())
             else:
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
             assert 'people' in data, "데이터에 키포인트 없음"
             people_data = data['people']
@@ -502,7 +632,7 @@ class TrainDataLoader:
 
             return self._json_to_numpy(person)
         except Exception as e:
-            raise ValueError(f"Error processing {file_path_tensor.numpy().decode('utf-8')}: {e}")
+            raise ValueError(f"Error processing {file_path}: {e}")
 
     #  --- S3 exclusive helper method ---
     def _list_s3_subdirs(self, prefix):
@@ -527,11 +657,35 @@ class TrainDataLoader:
         blobs = self.gcs_client.list_blobs(self.gcs_bucket_name, prefix=prefix, delimiter='/')
         return sorted([f"gs://{self.gcs_bucket_name}/{blob.name}" for blob in blobs if blob.name.endswith('_keypoints.json')])
 
+    def print_dataset_info(self, ds, title: str): # title: "* Dataset Info"
+        """
+        Dataset(TF) 또는 Numpy 배열의 정보를 통합하여 출력하는 헬퍼 함수
+        """
+        print(f"\n{'='*20} {title} {'='*20}")
+
+        # 1. Numpy 배열인 경우
+        if isinstance(ds, np.ndarray):
+            print(f"[*] Type=Numpy, Shape={ds.shape}, Dtype={ds.dtype}")
+
+        # 2. tf.data.Dataset인 경우
+        elif isinstance(ds, tf.data.Dataset):
+            # 개수 확인 (알 수 없는 경우 -2 반환)
+            count = ds.cardinality().numpy()
+            count_str = count if count >= 0 else "Unknown"
+
+            # 형상 확인 (하나의 배치/요소를 꺼내서 확인)
+            try:
+                # element_spec을 통해 전체적인 구조 확인 가능
+                spec = ds.element_spec
+                print(f"[*] Type=TF.Dataset, Count={count_str}, Spec={spec}")
+            except Exception:
+                print(f"[*] Type=TF.Dataset, Count={count_str}")
+
 # --- 업로드 인터페이스 함수 ---
-def upload_file(local_root_path: str, upload_path: str, file_name: str = None):
-    if UPLOAD_MODE == 'S':
+def upload_file(local_root_path: str, upload_path: str, file_name: str = None, upload_mode: str='G'):
+    if upload_mode == 'S':
         upload_file_to_s3(local_root_path=local_root_path, s3_path=upload_path, file_name=file_name)
-    elif UPLOAD_MODE == 'G':
+    elif upload_mode == 'G':
         upload_file_to_gcs(local_root_path=local_root_path, gcs_path=upload_path, file_name=file_name)
     # UPLOAD_MODE == 'L'인 경우 아무것도 하지 않음.
 
@@ -573,7 +727,8 @@ def upload_file_to_s3(local_root_path: str, s3_path: str, file_name: str = None)
 
 #  --- GCP upload method ---
 def upload_file_to_gcs(local_root_path: str, gcs_path: str, file_name: str = None):
-    local_root = Path(local_root_path).expanduser()
+    print(f"DEBUG: Function called!")
+    local_path_obj = Path(local_root_path).expanduser()
     parsed_gcs_path = urlparse(gcs_path)
     bucket_name = parsed_gcs_path.netloc
     save_prefix = parsed_gcs_path.path.lstrip('/')
@@ -582,18 +737,22 @@ def upload_file_to_gcs(local_root_path: str, gcs_path: str, file_name: str = Non
     bucket = client.bucket(bucket_name)
 
     files_to_upload = []
-    if file_name is None:
-        print(f"Preparing to upload directory {local_root} to gs://{bucket_name}/{save_prefix}")
-        for local_path in local_root.rglob('*'):
-            if local_path.is_file():
-                rel_path = local_path.relative_to(local_root).as_posix()
-                gcs_key = f"{save_prefix}/{rel_path}"
-                files_to_upload.append((local_path, gcs_key))
+    # 1. 디렉터리 전체 업로드 (폴더구조 유지)
+    if file_name is None and local_path_obj.is_dir():
+        folder_name = local_path_obj.name
+        print(f"Preparing to upload directory {folder_name} to gs://{bucket_name}/{save_prefix}/{folder_name}")
+        print(f"{str(local_path_obj)} 내 파일 개수: {len(list(local_path_obj.rglob('*')))}")
+        for file in local_path_obj.rglob('*'):
+            if file.is_file():
+                rel_path = file.relative_to(local_path_obj).as_posix()
+                gcs_key = f"{save_prefix}/{folder_name}/{rel_path}"
+                files_to_upload.append((file, gcs_key))
+    # 2. 단일 파일 업로드
     else:
-        local_file = local_root / file_name
+        local_file = local_path_obj / file_name if file_name else local_path_obj
         print(f"Preparing to upload file {local_file} to gs://{bucket_name}/{save_prefix}")
         if local_file.is_file():
-            gcs_key = f"{save_prefix}/{file_name}"
+            gcs_key = f"{save_prefix}/{file_name if file_name else local_file.name}"
             files_to_upload.append((local_file, gcs_key))
 
     for local_file_path, gcs_key in files_to_upload:
@@ -602,7 +761,7 @@ def upload_file_to_gcs(local_root_path: str, gcs_path: str, file_name: str = Non
             blob.upload_from_filename(str(local_file_path))
             print(f"  Uploaded {local_file_path} to gs://{bucket_name}/{gcs_key}")
         except Exception as e:
-            print(f"  Error uploading {local_file_path}: {e}")
+            print(f"  Error uploading {local_file_path.name}: {e}")
 
 # 전처리 및 키포인트 변환 함수
 def mediapipe_hands_to_openpose_format(mp_hand_landmarks, image_width, image_height):
