@@ -100,9 +100,8 @@ class LateDropout(keras.layers.Layer):
         # dtype = inputs.dtype
         x = tf.cond(
             self._train_counter < self.start_step,
-            lambda:inputs,
-            # lambda: ops.cast(self.dropout(inputs, training=training), dtype)        # inputs의 dtype으로 casting - fp16 가속 설정
-            lambda: self.dropout(inputs, training=training)
+            lambda: inputs,
+            lambda: tf.cast(self.dropout(inputs, training=training), inputs.dtype)
         )
         if training:
             self._train_counter.assign_add(1)
