@@ -30,6 +30,7 @@ docker run -d \
   --restart unless-stopped \
   -p 127.0.0.1:${PORT}:8000 \
   -v "${MODEL_DIR}:/app/models" \
+  -e KSL_VISUALIZE=1 \
   --memory="6g" \
   --cpus="2" \
   "$IMAGE"
