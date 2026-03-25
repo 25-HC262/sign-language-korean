@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+import time
 os.environ["KERAS_BACKEND"] = "tensorflow"
 from collections import deque
 
@@ -96,7 +98,27 @@ app = FastAPI()
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "model_loaded": model is not None}
+    return {"status": "ok", "model_loaded": model is not None, "umap_loaded": umap_encoder is not None}
+
+@app.get("/debug/toggle")
+async def toggle_debug():
+    _debug["enabled"] = not _debug["enabled"]
+    logger.info(f"디버그 모드: {'활성화' if _debug['enabled'] else '비활성화'}")
+    return {"debug_enabled": _debug["enabled"]}
+
+@app.get("/debug/status")
+async def debug_status():
+    return {"debug_enabled": _debug["enabled"]}
+
+
+def _init_user(user_id: str, user_sequences, user_last_label, user_last_emit_time,
+               user_frame_count, user_prob_history):
+    if user_id not in user_sequences:
+        user_sequences[user_id] = deque(maxlen=SEQ_LEN)
+        user_last_label[user_id] = ""
+        user_last_emit_time[user_id] = 0.0
+        user_frame_count[user_id] = 0
+        user_prob_history[user_id] = deque(maxlen=SMOOTHING_WINDOW)
 
 
 @app.websocket("/ws")
@@ -104,8 +126,12 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("스트리밍 서버가 연결되었습니다.")
 
-    # userId별 시퀀스 deque (MediaPipe는 전역 인스턴스 공유)
+    # userId별 상태 관리
     user_sequences: dict[str, deque] = {}
+    user_last_label: dict[str, str] = {}
+    user_last_emit_time: dict[str, float] = {}
+    user_frame_count: dict[str, int] = {}
+    user_prob_history: dict[str, deque] = {}
 
     try:
         while True:
@@ -119,13 +145,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     if msg_type == "stream_config":
                         user_id = ctrl.get("userId")
-                        if user_id and user_id not in user_sequences:
-                            user_sequences[user_id] = deque(maxlen=SEQ_LEN)
+                        if user_id:
+                            _init_user(user_id, user_sequences, user_last_label,
+                                       user_last_emit_time, user_frame_count, user_prob_history)
                             print(f"[{user_id}] 시퀀스 초기화")
 
                     elif msg_type == "stop_stream":
                         user_id = ctrl.get("userId")
                         user_sequences.pop(user_id, None)
+                        user_last_label.pop(user_id, None)
+                        user_last_emit_time.pop(user_id, None)
+                        user_frame_count.pop(user_id, None)
+                        user_prob_history.pop(user_id, None)
                         print(f"[{user_id}] 리소스 정리 완료")
 
                 except Exception as e:
@@ -146,7 +177,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # stream_config 없이 프레임이 먼저 도착한 경우 lazy 초기화
             if user_id not in user_sequences:
-                user_sequences[user_id] = deque(maxlen=SEQ_LEN)
+                _init_user(user_id, user_sequences, user_last_label,
+                           user_last_emit_time, user_frame_count, user_prob_history)
                 print(f"[{user_id}] lazy 초기화")
 
             # 이미지 디코딩
@@ -162,30 +194,64 @@ async def websocket_endpoint(websocket: WebSocket):
             pose_result = pose_landmarker.detect(mp_image)
             hand_result = hand_landmarker.detect(mp_image)
 
+            # 디버그: 감지 현황 로그
+            if _debug["enabled"]:
+                n_hands = len(hand_result.hand_landmarks) if hand_result.hand_landmarks else 0
+                hand_labels = [h[0].category_name for h in hand_result.handedness] if hand_result.hand_landmarks else []
+                wrist_x = [lm[0].x for lm in hand_result.hand_landmarks] if hand_result.hand_landmarks else []
+                logger.info(
+                    f"[{user_id}] frame={user_frame_count[user_id]} "
+                    f"pose={bool(pose_result.pose_landmarks)} "
+                    f"hands={n_hands} labels={hand_labels} wrist_x={[f'{x:.2f}' for x in wrist_x]}"
+                )
+
             # 키포인트 추출 및 시퀀스 추가
             keypoints = mediapipe_to_openpose_keypoints(pose_result, hand_result, image_width, image_height)
             user_sequences[user_id].append(keypoints)
+            user_frame_count[user_id] += 1
 
-            # 60프레임 시퀀스가 쌓이면 예측
-            if len(user_sequences[user_id]) == SEQ_LEN and model:
+            # 60프레임 + STRIDE마다 예측
+            if (len(user_sequences[user_id]) == SEQ_LEN
+                    and model and umap_encoder
+                    and user_frame_count[user_id] % PREDICTION_STRIDE == 0):
                 try:
+                    seq_array = np.array(list(user_sequences[user_id]))
                     processed_seq = main_preprocess_sequence(
-                        np.array(list(user_sequences[user_id])), max_len=CROP_LEN
+                        seq_array, max_len=CROP_LEN, umap_encoder=umap_encoder
                     )
-                    input_batch = np.expand_dims(processed_seq, axis=0)
 
+                    if _debug["enabled"]:
+                        logger.info(
+                            f"[{user_id}] UMAP embedding: "
+                            f"mean={processed_seq.mean():.3f} std={processed_seq.std():.3f} "
+                            f"min={processed_seq.min():.3f} max={processed_seq.max():.3f}"
+                        )
+
+                    input_batch = np.expand_dims(processed_seq, axis=0)
                     prediction = model.predict(input_batch, verbose=0)
-                    confidence = np.max(prediction[0])
+
+                    # 신뢰도 스무딩: 최근 SMOOTHING_WINDOW개 예측 평균
+                    user_prob_history[user_id].append(prediction[0])
+                    smoothed_probs = np.mean(list(user_prob_history[user_id]), axis=0)
+                    confidence = float(np.max(smoothed_probs))
+                    predicted_idx = int(np.argmax(smoothed_probs))
 
                     if confidence >= THRESHOLD:
-                        predicted_idx = np.argmax(prediction[0])
                         predicted_sign = idx_to_label.get(predicted_idx, "알 수 없음")
-                        result_text = f"{predicted_sign} (정확도: {confidence:.0%})"
-                    else:
-                        result_text = "인식 결과 없음"
+                        now = time.time()
+                        last_label = user_last_label[user_id]
+                        last_time = user_last_emit_time[user_id]
 
-                    # userId 포함하여 응답 → 스트리밍 서버가 해당 사용자에게만 전달
-                    await websocket.send_json({"userId": user_id, "text": result_text})
+                        # 다른 단어이거나, 같은 단어라도 쿨다운 이후면 출력
+                        should_emit = (
+                            predicted_sign != last_label or
+                            (now - last_time) >= PREDICTION_COOLDOWN_SEC
+                        )
+                        if should_emit:
+                            user_last_label[user_id] = predicted_sign
+                            user_last_emit_time[user_id] = now
+                            result_text = f"{predicted_sign} (정확도: {confidence:.0%})"
+                            await websocket.send_json({"userId": user_id, "text": result_text})
 
                 except Exception as e:
                     print(f"[{user_id}] 예측 오류: {e}")
