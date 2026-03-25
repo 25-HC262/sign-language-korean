@@ -11,9 +11,9 @@ import keras.optimizers
 import optuna
 from optuna.storages import RDBStorage
 
-from src.config import OPTUNA_TRIALS_PATH, EPOCHS, NUM_CLASSES, SUBSET_RATIO, \
+from src.config import OPTUNA_TRIALS_PATH, NUM_CLASSES, SUBSET_RATIO, \
     OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, UMAP_OUTPUT_DIM, \
-    L_TOOLS, VALIDATION_SPLIT, MAX_LEN, get_base_parser, L_PARAMS, \
+    L_TOOLS, VALIDATION_SPLIT, get_base_parser, L_PARAMS, \
     PathConfig
 
 from load_data.create_dataset import DataSetter, upload_file
@@ -22,11 +22,12 @@ from src.backbone import get_model
 
 def objective(trial):
     # 1. 하이퍼파라미터 탐색 공간 정의
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 5e-3, log=True)
     batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
-    num_train_epochs = trial.suggest_int("num_train_epochs", 30, EPOCHS)
-    weight_decay = trial.suggest_float("weight_decay", 0.0, 0.3)
-    sequence_length = trial.suggest_int("sequence_length", 100, MAX_LEN)
+    weight_decay = trial.suggest_float("weight_decay", 1e-4, 0.2)
+
+    num_train_epochs = 200 # 고정
+    sequence_length = 300  # 고정
 
     # 2. 데이터 불러오기
     train_dataset, val_dataset, _ = DataSetter(
