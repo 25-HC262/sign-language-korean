@@ -1,7 +1,6 @@
 #!/bin/bash
 
 LOG_DIR="./tools/logs"
-mkdir -p "$LOG_DIR"
 
 # 100번 반복 실행
 for i in {1..100}
