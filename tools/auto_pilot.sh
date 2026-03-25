@@ -15,12 +15,12 @@ do
     echo "=========================================================="
 
     # 1. 탐색 스크립트 실행
-        # tee 명령어를 사용하여 화면에 출력함과 동시에 파일에도 저장합니다.
-        python -u -m train.transformer_best_params_search \
-                -m transformer \
-                --name "gloss_transformer_0325_${i}" \
-                --sr 0.4 \
-                --nt 10 2>&1 | tee "LOG_FILE"
+    # tee 명령어를 사용하여 화면에 출력함과 동시에 파일에도 저장합니다.
+    python -u -m train.transformer_best_params_search \
+            -m transformer \
+            --name "gloss_transformer_0325_${i}" \
+            --sr 0.4 \
+            --nt 10 2>&1 | tee "$LOG_FILE"
 
     sync # 파일 시스템 동기화 (디스크에 쓰기 완료 보장)
 
