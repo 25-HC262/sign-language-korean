@@ -43,7 +43,7 @@ for i in $(seq 1 24); do
     docker logs "$CONTAINER_NAME" --tail 30
     break
   fi
-  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${PORT}/health 2>/dev/null)
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${PORT}/health 2>/dev/null) || true
   if [ "$HTTP_STATUS" = "200" ]; then
     echo "헬스체크 통과 ($((i * 5))초 경과)"
     echo "$IMAGE" > "$LAST_IMAGE_FILE"
