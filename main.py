@@ -18,7 +18,7 @@ from load_data.inference import mediapipe_to_openpose_keypoints, \
     main_preprocess_sequence
 from src.backbone import CausalDWConv1D, ECA, LateDropout, \
     MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN, UMAP_LOAD_PATH
+from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN, get_config_args, PathConfig
 
 logger = logging.getLogger("ksl")
 logging.basicConfig(level=logging.INFO)
@@ -86,8 +86,9 @@ except Exception as e:
 
 print("UMAP 인코더 로딩 중...")
 try:
-    umap_encoder = keras.models.load_model(UMAP_LOAD_PATH)
-    print(f"UMAP 인코더 로딩 완료: {UMAP_LOAD_PATH}")
+    _umap_path = PathConfig(get_config_args()).UMAP_LOAD_PATH
+    umap_encoder = keras.models.load_model(_umap_path)
+    print(f"UMAP 인코더 로딩 완료: {_umap_path}")
 except Exception as e:
     print(f"UMAP 인코더 로딩 실패: {e}")
     umap_encoder = None
