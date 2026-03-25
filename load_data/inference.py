@@ -2,10 +2,9 @@
 서빙 전용 전처리 함수 모음.
 학습 의존성(boto3, tqdm, gcs 등) 없이 동작합니다.
 """
-import keras
 import numpy as np
 
-from src.config import POINT_LANDMARKS, get_config_args, PathConfig
+from src.config import POINT_LANDMARKS
 
 
 def mediapipe_to_openpose_keypoints(pose_result, hand_result, image_width, image_height):
@@ -35,7 +34,7 @@ def mediapipe_to_openpose_keypoints(pose_result, hand_result, image_width, image
     return np.concatenate([pose, face, left_hand, right_hand], axis=0)
 
 
-def main_preprocess_sequence(sequence: np.ndarray, max_len: int) -> np.ndarray:
+def main_preprocess_sequence(sequence: np.ndarray, max_len: int, umap_encoder) -> np.ndarray:
     sequence = np.array(sequence)[..., :2]  # (x, y)만 사용, visibility/z 제거
     original_len = len(sequence)
 
@@ -66,10 +65,6 @@ def main_preprocess_sequence(sequence: np.ndarray, max_len: int) -> np.ndarray:
     selected_seq = selected_seq.reshape(max_len, -1)
     selected_seq = np.nan_to_num(selected_seq, 0)
 
-    args = get_config_args()
-    pc = PathConfig(args)
-
-    umap_encoder = keras.models.load_model(pc.UMAP_LOAD_PATH)
-    embedding = umap_encoder.predict(selected_seq)
+    embedding = umap_encoder.predict(selected_seq, verbose=0)
 
     return embedding
