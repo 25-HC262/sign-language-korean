@@ -36,7 +36,7 @@ def mediapipe_to_openpose_keypoints(pose_result, hand_result, image_width, image
 
 
 def main_preprocess_sequence(sequence: np.ndarray, max_len: int) -> np.ndarray:
-    sequence = np.array(sequence)
+    sequence = np.array(sequence)[..., :2]  # (x, y)만 사용, visibility/z 제거
     original_len = len(sequence)
 
     if original_len > max_len:
