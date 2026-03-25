@@ -19,7 +19,7 @@ import torch.nn.functional as F
 # Keras의 mixed_precision 대신 사용. accelerate launch 실행 권장.
 scaler = torch.cuda.amp.GradScaler()
 
-from .config import CROP_LEN, NUM_CLASSES, UMAP_OUTPUT_DIM
+from src.config import CROP_LEN, NUM_CLASSES, UMAP_OUTPUT_DIM
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -300,7 +300,7 @@ class SignMamba(nn.Module):
         return self.classifier(x)
 
 
-def get_mamba_model(
+def get_model(
     max_len: int = CROP_LEN,
     in_dim: int = UMAP_OUTPUT_DIM,
     d_model: int = 32,

@@ -22,10 +22,10 @@ from torch.utils.data import Dataset, DataLoader
 import wandb
 from accelerate import Accelerator
 
-from src.mamba_backbone import get_mamba_model, scaler
+from src.backbones.mamba_backbone import get_model
 from src.config import (
     CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES,
-    VALIDATION_SPLIT, WEIGHT_DECAY, UMAP_OUTPUT_DIM, UMAP_LOAD_PATH,
+    WEIGHT_DECAY, UMAP_OUTPUT_DIM, UMAP_LOAD_PATH,
     LOCAL_PATHS, WANDB_GM_PROJECT, WANDB_GM_GROUP, WANDB_GM_TAGS,
     L_GM, L_CKPT, date_idx,
 )
@@ -122,7 +122,7 @@ def train_model(
 
     # ── 2. 모델 생성 ──
     print("\n모델 생성 중...")
-    model = get_mamba_model(
+    model = get_model(
         max_len=max_sequence_len,
         in_dim=UMAP_OUTPUT_DIM,
         d_model=d_model,

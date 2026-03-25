@@ -7,7 +7,7 @@ import numpy as np
 
 from load_data.create_dataset import DataSetter
 # custom layers
-from src.backbone import get_model
+from src.backbones.transformer_backbone import get_model
 from src.config import UMAP_OUTPUT_DIM, NUM_CLASSES, L_PARAMS, L_GM, get_config_args, PathConfig
 
 

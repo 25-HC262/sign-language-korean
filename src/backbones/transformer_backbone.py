@@ -1,10 +1,10 @@
-# src/backbone.py
+# src/transformer_backbone.py
 import importlib
 importlib.import_module("src.tf_keras_config")
 import itertools
 
 import keras
-# keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
+keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
 import tensorflow as tf
 
 from src.config import CROP_LEN, NUM_CLASSES, UMAP_OUTPUT_DIM, PAD
@@ -396,7 +396,8 @@ class TFLiteModel(tf.Module):
         outputs = self.islr_model(inputs, training=False)  # Call single model directly
         return {'outputs': outputs}
 
-def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES, training: bool=True):
+def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES, training: bool=True,
+              num_heads: int=4):
     """
     Creates a model for sequence classification using a combination of convolutional layers and transformer blocks.
 
@@ -421,24 +422,24 @@ def get_model(max_len=CROP_LEN, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes
     x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
     x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
     x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-    x = TransformerBlock(dim,expand=2)(x)
+    x = TransformerBlock(dim,expand=2,num_heads=num_heads)(x)
 
     x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
     x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
     x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-    x = TransformerBlock(dim,expand=2)(x)
+    x = TransformerBlock(dim,expand=2,num_heads=num_heads)(x)
 
     # Additional convolutional blocks and transformer blocks for larger models
     if dim == 384: #for the 4x sized model
         x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
         x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
         x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-        x = TransformerBlock(dim,expand=2)(x)
+        x = TransformerBlock(dim,expand=2,num_heads=num_heads)(x)
 
         x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
         x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
         x = Conv1DBlock(dim,ksize,drop_rate=0.2)(x)
-        x = TransformerBlock(dim,expand=2)(x)
+        x = TransformerBlock(dim,expand=2,num_heads=num_heads)(x)
 
     # Top layers
     x = keras.layers.Dense(dim*2,activation=None,name='top_conv')(x)

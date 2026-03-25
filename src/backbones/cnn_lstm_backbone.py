@@ -1,8 +1,8 @@
-# src/cnn_lstm.py
+# src/cnn_lstm_backbone.py
 import importlib
 importlib.import_module("src.tf_keras_config")
 import keras
-from .config import CROP_LEN, PAD, NUM_CLASSES
+from src.config import CROP_LEN, PAD, NUM_CLASSES
 
 
 def get_model(dim: int, max_len=CROP_LEN, num_classes=NUM_CLASSES,
@@ -32,7 +32,7 @@ def get_model(dim: int, max_len=CROP_LEN, num_classes=NUM_CLASSES,
     inp = keras.Input(shape=(max_len, dim))
     x = keras.layers.Masking(mask_value=PAD)(inp)
 
-    # ----- Stem: 입력 차원 → cnn_channels (backbone.py 스타일) -----
+    # ----- Stem: 입력 차원 → cnn_channels (transformer_backbone.py 스타일) -----
     x = keras.layers.Dense(cnn_channels, use_bias=False, name='stem_conv')(x)
     x = keras.layers.BatchNormalization(momentum=0.95, name='stem_bn')(x)
     x = keras.layers.Activation('relu')(x)

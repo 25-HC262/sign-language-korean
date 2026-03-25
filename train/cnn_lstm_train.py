@@ -1,6 +1,5 @@
 import importlib
 importlib.import_module("src.tf_keras_config")
-import tensorflow as tf
 from pathlib import Path
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
@@ -8,7 +7,7 @@ import keras
 keras.mixed_precision.set_global_policy("mixed_float16")
 
 # 커스텀
-from src.cnn_lstm import get_model
+from src.backbones.cnn_lstm_backbone import get_model
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     NUM_NODES, CHANNELS, VALIDATION_SPLIT, \
     UMAP_OUTPUT_DIM, WEIGHT_DECAY, get_base_parser, PathConfig
@@ -145,45 +144,45 @@ def train_model(learning_rate: float = LEARNING_RATE,
     wandb.log_artifact(artifact)
 
     # 4. TFLite 변환
-    print("Converting to TFLite...")
-    concrete_input_signature = tf.TensorSpec(
-        shape=[1, max_sequence_len, pc.UMAP_OUTPUT_DIM],
-        dtype=tf.float32
-    )
-
-    @tf.function(input_signature=[concrete_input_signature])
-    def serve(inputs):
-        return {'outputs': model(inputs, training=False)}
-
-    concrete_function = serve.get_concrete_function(concrete_input_signature)
-    converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function])
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    converter.target_spec.supported_ops = [
-        tf.lite.OpsSet.TFLITE_BUILTINS,
-        tf.lite.OpsSet.SELECT_TF_OPS  # LSTM ops에 필요
-    ]
-
-    try:
-        tflite_model = converter.convert()
-        with open(pc.LOCAL_PATHS["gm_tflite"], 'wb') as f:
-            f.write(tflite_model)
-        print("TFLite model saved successfully!")
-        upload_file(
-            local_root_path=str(Path(pc.LOCAL_PATHS["gm_tflite"]).parent),
-            upload_path=pc.LOAD_GM,
-            file_name=str(Path(pc.LOCAL_PATHS["gm_tflite"]).name)
-        )
-
-        tflite_artifact = wandb.Artifact(
-            name=f"gloss-{pc.SELECTED_GM_TYPE}-tflite",
-            type="model",
-            description=f"TFLite-converted gloss {pc.SELECTED_GM_TYPE} model",
-            metadata=dict(wandb.config),
-        )
-        tflite_artifact.add_file(pc.LOCAL_PATHS["gm_tflite"])
-        wandb.log_artifact(tflite_artifact)
-    except Exception as e:
-        print(f"Warning: TFLite conversion failed: {e}")
+    # print("Converting to TFLite...")
+    # concrete_input_signature = tf.TensorSpec(
+    #     shape=[1, max_sequence_len, pc.UMAP_OUTPUT_DIM],
+    #     dtype=tf.float32
+    # )
+    #
+    # @tf.function(input_signature=[concrete_input_signature])
+    # def serve(inputs):
+    #     return {'outputs': model(inputs, training=False)}
+    #
+    # concrete_function = serve.get_concrete_function(concrete_input_signature)
+    # converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_function])
+    # converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    # converter.target_spec.supported_ops = [
+    #     tf.lite.OpsSet.TFLITE_BUILTINS,
+    #     tf.lite.OpsSet.SELECT_TF_OPS  # LSTM ops에 필요
+    # ]
+    #
+    # try:
+    #     tflite_model = converter.convert()
+    #     with open(pc.LOCAL_PATHS["gm_tflite"], 'wb') as f:
+    #         f.write(tflite_model)
+    #     print("TFLite model saved successfully!")
+    #     upload_file(
+    #         local_root_path=str(Path(pc.LOCAL_PATHS["gm_tflite"]).parent),
+    #         upload_path=pc.LOAD_GM,
+    #         file_name=str(Path(pc.LOCAL_PATHS["gm_tflite"]).name)
+    #     )
+    #
+    #     tflite_artifact = wandb.Artifact(
+    #         name=f"gloss-{pc.SELECTED_GM_TYPE}-tflite",
+    #         type="model",
+    #         description=f"TFLite-converted gloss {pc.SELECTED_GM_TYPE} model",
+    #         metadata=dict(wandb.config),
+    #     )
+    #     tflite_artifact.add_file(pc.LOCAL_PATHS["gm_tflite"])
+    #     wandb.log_artifact(tflite_artifact)
+    # except Exception as e:
+    #     print(f"Warning: TFLite conversion failed: {e}")
 
     print("Training completed!")
 

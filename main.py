@@ -16,7 +16,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import keras
 from load_data.inference import mediapipe_to_openpose_keypoints, \
     main_preprocess_sequence
-from src.backbone import CausalDWConv1D, ECA, LateDropout, \
+from src.backbones.transformer_backbone import CausalDWConv1D, ECA, LateDropout, \
     MultiHeadSelfAttention
 from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN, get_config_args, PathConfig
 

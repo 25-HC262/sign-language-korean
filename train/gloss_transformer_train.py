@@ -1,14 +1,13 @@
 import importlib
 importlib.import_module("src.tf_keras_config")
 from pathlib import Path
-import tensorflow as tf
 import wandb
 from wandb.integration.keras import WandbMetricsLogger
 
 # 커스텀
 from load_data.create_dataset import DataSetter
 from load_data.create_dataset import upload_file
-from src.backbone import get_model, TFLiteModel
+from src.backbones.transformer_backbone import get_model
 from src.config import CROP_LEN, LEARNING_RATE, EPOCHS, BATCH_SIZE, NUM_CLASSES, \
     UMAP_OUTPUT_DIM, WEIGHT_DECAY, get_base_parser, \
     PathConfig, VALIDATION_SPLIT, NUM_NODES
@@ -17,7 +16,7 @@ def train_model(learning_rate: float=LEARNING_RATE, epochs: int=EPOCHS, batch_si
                 max_sequence_len: int=CROP_LEN
                 ):
     import keras
-    # keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
+    keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
 
     wandb.init(
         project=pc.WANDB_GM_PROJECT,
