@@ -14,10 +14,10 @@ from optuna.storages import RDBStorage
 from src.config import OPTUNA_TRIALS_PATH, NUM_CLASSES, SUBSET_RATIO, \
     OPTUNA_MODEL, OPTUNA_STUDY_NAME, N_TRIALS, UMAP_OUTPUT_DIM, \
     L_TOOLS, VALIDATION_SPLIT, get_base_parser, L_PARAMS, \
-    PathConfig
+    PathConfig, OUTPUT_DIM
 
 from load_data.create_dataset import DataSetter, upload_file
-from src.backbone import get_model
+from src.backbones.transformer_backbone import get_model
 
 
 def objective(trial):
@@ -31,10 +31,10 @@ def objective(trial):
 
     # 2. 데이터 불러오기
     train_dataset, val_dataset, _ = DataSetter(
-        umap_path=pc.UMAP_LOAD_PATH,
+        umap_path=umap_path,
         max_seq_len=sequence_length,
         batch_size=batch_size,
-        dim_reduction=True
+        dim_reduction=dim_rd
     ).get_datasets()
     # 2-1. 학습 데이터 줄이기
     num_train = int(80*NUM_CLASSES*(1-VALIDATION_SPLIT) * subset_ratio)
@@ -47,8 +47,10 @@ def objective(trial):
     val_dataset = val_dataset.shuffle(buffer_size=1000, seed=42)
     small_val_dataset = val_dataset.take(max(num_val,1))
 
+    output = UMAP_OUTPUT_DIM if dim_rd else OUTPUT_DIM
+
     # 3. 모델 설정
-    model = get_model(max_len=sequence_length, dropout_step=0, dim=UMAP_OUTPUT_DIM, num_classes=NUM_CLASSES)
+    model = get_model(max_len=sequence_length, dropout_step=0, dim=output, num_classes=NUM_CLASSES)
     model.compile(
         optimizer = keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay),
         loss = keras.losses.SparseCategoricalCrossentropy(),
@@ -98,10 +100,6 @@ def objective(trial):
     return eval_result['accuracy']
 
 if __name__=="__main__":
-    """
-    TO-DO
-    transformer에서 다른 모델들로 확장
-    """
     def get_optuna_config():
         base_parser = get_base_parser()
         parser = argparse.ArgumentParser(parents=[base_parser])
@@ -125,6 +123,12 @@ if __name__=="__main__":
             type=int,
             default=N_TRIALS
         )
+        # 유맵 사용 여부
+        parser.add_argument(
+            "--dr", "--dim_reduction",
+            choices=['n', 'y']
+        )
+
         o_args = parser.parse_args()
         print(*(f"   > {'[default]' if v==parser.get_default(k) else ''} {k}: {v} selected." for k,v in vars(o_args).items()), sep='\n')
         return o_args
@@ -133,8 +137,12 @@ if __name__=="__main__":
     study_name = args.name
     subset_ratio = args.sr
     n_trials = args.nt
+    model_n = args.model
+    dim_rd = True if args.dr=='y' else False
 
     pc = PathConfig(args)
+
+    umap_path = pc.UMAP_LOAD_PATH if dim_rd else None
 
     # 2. optuna 세팅
     storage = RDBStorage(url=OPTUNA_TRIALS_PATH)
