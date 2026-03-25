@@ -16,7 +16,17 @@ from load_data.inference import mediapipe_to_openpose_keypoints, \
     main_preprocess_sequence
 from src.backbone import CausalDWConv1D, ECA, LateDropout, \
     MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN
+from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN, get_config_args, PathConfig
+
+logger = logging.getLogger("ksl")
+logging.basicConfig(level=logging.INFO)
+
+_debug = {"enabled": os.environ.get("KSL_DEBUG", "0") == "1"}
+
+# 중복 출력 방지 설정
+PREDICTION_COOLDOWN_SEC = 1.5   # 같은 단어 재출력까지 최소 대기 시간(초)
+PREDICTION_STRIDE = 15          # N 프레임마다 1회 예측
+SMOOTHING_WINDOW = 3            # 최근 N개 예측 확률 평균 후 argmax
 
 # 이전 버전 Keras 호환: quantization_config이 포함된 모델 로딩 지원
 # custom_objects는 Keras 내장 레이어에 적용되지 않아 from_config를 직접 패치
@@ -71,6 +81,15 @@ except Exception as e:
     except Exception as e2:
         print(f"최종 모델 로딩 실패: {e2}")
         model = None
+
+print("UMAP 인코더 로딩 중...")
+try:
+    _umap_path = PathConfig(get_config_args()).UMAP_LOAD_PATH
+    umap_encoder = keras.models.load_model(_umap_path)
+    print(f"UMAP 인코더 로딩 완료: {_umap_path}")
+except Exception as e:
+    print(f"UMAP 인코더 로딩 실패: {e}")
+    umap_encoder = None
 
 # -- FastAPI 앱 및 WebSocket 엔드포인트 --
 app = FastAPI()
