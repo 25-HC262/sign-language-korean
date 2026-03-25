@@ -8,6 +8,8 @@ wandb/
 data/
 models/
 tools/
+!tools/__init__.py
+!tools/viz.py
 train/
 validation/
 documents/
