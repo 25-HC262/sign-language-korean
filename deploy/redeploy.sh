@@ -17,8 +17,8 @@ docker pull "$IMAGE"
 
 echo "==> [3/5] GCS에서 모델 파일 다운로드"
 mkdir -p "${MODEL_DIR}/gloss_models"
-gsutil cp gs://trout-models/gloss_models/gloss_transformer_2026_03_24_19-28.keras \
-  "${MODEL_DIR}/gloss_models/gloss_transformer_2026_03_24_19-28.keras"
+gsutil cp gs://trout-models/gloss_models/gloss-transformer-2026_03_25_08-55.keras \
+  "${MODEL_DIR}/gloss_models/gloss-transformer-2026_03_25_08-55.keras"
 
 echo "==> [4/5] 기존 컨테이너 중지 및 제거"
 docker stop "$CONTAINER_NAME" 2>/dev/null || true
@@ -30,6 +30,7 @@ docker run -d \
   --restart unless-stopped \
   -p 127.0.0.1:${PORT}:8000 \
   -v "${MODEL_DIR}:/app/models" \
+  -e KSL_VISUALIZE=1 \
   --memory="6g" \
   --cpus="2" \
   "$IMAGE"
