@@ -6,16 +6,12 @@ from pathlib import Path
 
 # 기존 config의 모든 상수 임포트
 from src.config import (
-    POSE, LHAND, RHAND, DIRECTIONS, KSL_SENTENCES,
-    KEYPOINT_DIM, VALIDATION_SPLIT, CROP_LEN, MAX_LEN,
-    NUM_CLASSES, BATCH_SIZE, LEARNING_RATE, WEIGHT_DECAY, EPOCHS,
-    PAD, L_DATA, L_CKPT, L_GM, L_TEST, THRESHOLD, SEQ_LEN,
-)
+    POSE, LHAND, RHAND, KEYPOINT_DIM, L_CKPT, L_GM, )
 
 # ============= ASL 사전학습 모델 경로 =============
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ASL_WEIGHTS_PATH = str(
-    _PROJECT_ROOT.parent / "sign-language" / "models" /
+    _PROJECT_ROOT.parent / "sign-language-korean" / "models" /
     "islr-fp16-192-8-seed_all42-foldall-last.h5"
 )
 
