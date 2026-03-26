@@ -19,10 +19,13 @@ RUN curl -fsSL \
     -o /app/pose_landmarker_full.task && \
     curl -fsSL \
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task" \
-    -o /app/hand_landmarker.task
+    -o /app/hand_landmarker.task && \
+    curl -fsSL \
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task" \
+    -o /app/face_landmarker.task
 
 COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main_asl_finetune:app", "--host", "0.0.0.0", "--port", "8000"]
