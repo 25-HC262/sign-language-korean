@@ -184,9 +184,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     smoothed   = np.mean(list(prob_hist[user_id]), axis=0)
                     confidence = float(np.max(smoothed))
                     pred_idx   = int(np.argmax(smoothed))
+                    pred_sign  = idx_to_label.get(pred_idx, "unknown")
+
+                    logger.info(f"[{user_id}] top={pred_sign} conf={confidence:.3f} (threshold={THRESHOLD})")
 
                     if confidence >= THRESHOLD:
-                        pred_sign = idx_to_label.get(pred_idx, "unknown")
                         if pred_sign != last_label[user_id]:
                             last_label[user_id] = pred_sign
                             await websocket.send_json({"userId": user_id, "text": pred_sign})
