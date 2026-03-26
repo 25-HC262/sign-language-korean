@@ -16,9 +16,9 @@ echo "==> [2/5] 새 이미지 pull: $IMAGE"
 docker pull "$IMAGE"
 
 echo "==> [3/5] GCS에서 모델 파일 다운로드"
-mkdir -p "${MODEL_DIR}/gloss_models"
-gsutil cp gs://trout-models/gloss_models/gloss_transformer_2026_03_25_16-22.keras \
-  "${MODEL_DIR}/gloss_models/gloss_transformer_2026_03_25_16-22.keras"
+mkdir -p "${MODEL_DIR}/fine-tunning"
+gsutil cp gs://trout-models/fine-tunning/ksl_asl_stage3.keras \
+  "${MODEL_DIR}/fine-tunning/ksl_asl_stage3.keras"
 
 echo "==> [4/5] 기존 컨테이너 중지 및 제거"
 docker stop "$CONTAINER_NAME" 2>/dev/null || true
@@ -30,6 +30,7 @@ docker run -d \
   --restart unless-stopped \
   -p 127.0.0.1:${PORT}:8000 \
   -v "${MODEL_DIR}:/app/models" \
+  -e KSL_FINETUNE_MODEL=models/fine-tunning/ksl_asl_stage3.keras \
   -e KSL_VISUALIZE=1 \
   -e PYTHONUNBUFFERED=1 \
   --memory="6g" \
