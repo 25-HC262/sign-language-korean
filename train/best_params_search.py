@@ -263,7 +263,7 @@ if __name__=="__main__":
     # --- 추가: Bash 스크립트가 읽기 편하도록 최적 파라미터를 한 줄로 출력 ---
     bp = study.best_params
     # 학습 스크립트의 인자명(--lr, --bs 등)에 맞춰서 문자열 생성
-    cmd_args = f"--lr {bp['learning_rate']} --bs {bp['batch_size']} --epochs {bp['num_train_epochs']} --wd {bp['weight_decay']} --msl {bp['sequence_length']}"
+    cmd_args = f"--lr {bp['learning_rate']} --bs {bp['batch_size']} --wd {bp['weight_decay']}"
 
     # 식별하기 쉽게 특수한 태그(RESULT_ARGS:)를 붙여서 출력
     print(f"\nRESULT_ARGS: {cmd_args}")
