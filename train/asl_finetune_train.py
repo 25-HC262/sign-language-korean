@@ -155,7 +155,7 @@ def run_stage(
 
     model.compile(
         optimizer=keras.optimizers.AdamW(learning_rate=lr, weight_decay=1e-4),
-        loss=keras.losses.SparseCategoricalCrossentropy(label_smoothing=label_smoothing),
+        loss=keras.losses.SparseCategoricalCrossentropy(),
         metrics=['accuracy'],
     )
 
