@@ -12,7 +12,7 @@ from src.config import (
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ASL_WEIGHTS_PATH = str(
     _PROJECT_ROOT.parent / "sign-language-korean" / "models" /
-    "islr-fp16-192-8-seed_all42-foldall-best.h5"
+    "islr-fp16-192-8-seed42-fold0-best.h5"
 )
 
 # ============= 파인튜닝 아키텍처 상수 =============
