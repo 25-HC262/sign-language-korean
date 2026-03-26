@@ -6,7 +6,7 @@ set -euo pipefail
 IMAGE="${1:?사용법: redeploy.sh <image:tag>}"
 CONTAINER_NAME="sign-language-korean"
 MODEL_DIR="/opt/sign-language-korean/models"
-PORT="8000"
+PORT="8001"
 LAST_IMAGE_FILE="/opt/sign-language-korean/.last-deployed-image"
 
 echo "==> [1/5] Artifact Registry 인증"
