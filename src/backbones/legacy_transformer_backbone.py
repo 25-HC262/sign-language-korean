@@ -50,17 +50,6 @@ class ECA(keras.layers.Layer):
         nn = tf.cast(nn, inputs.dtype)
         return inputs * nn
 
-    # def build(self, input_shape): # self.conv를 구성함.
-    #     # GAP 이후 shape는 (Batch, Channels, 1)이 됨
-    #     self.conv.build((None, input_shape[-1], 1))
-    #     super().build(input_shape)
-    #
-    # def get_config(self):
-    #     config = super().get_config()
-    #     config.update({"kernel_size": self.kernel_size})
-    #     return config
-
-# @keras.saving.register_keras_serializable()
 class LateDropout(keras.layers.Layer):
     """
     Layer that applies dropout after a certain training step.
@@ -82,10 +71,9 @@ class LateDropout(keras.layers.Layer):
         self.dropout = keras.layers.Dropout(rate, noise_shape=noise_shape)
 
     def build(self, input_shape):
-        # self.dropout.build(input_shape) # 자식 드롭아웃 빌드
+        super().build(input_shape)
         agg = tf.VariableAggregation.ONLY_FIRST_REPLICA
         self._train_counter = tf.Variable(0, dtype="int64", aggregation=agg, trainable=False)
-        super().build(input_shape)
 
     def call(self, inputs, training=False):
         """
@@ -117,7 +105,6 @@ class LateDropout(keras.layers.Layer):
     #     })
     #     return config
 
-# @keras.saving.register_keras_serializable()
 class CausalDWConv1D(keras.layers.Layer):
     """
     Causal Dilated Depthwise Convolutional 1D layer.
@@ -170,21 +157,6 @@ class CausalDWConv1D(keras.layers.Layer):
         x = self.causal_pad(inputs)
         x = self.dw_conv(x)
         return x # ops.cast(x, inputs.dtype) # inputs의 dtype으로 casting - fp16 가속 설정
-
-    # def build(self, input_shape):
-    #     pad_len = self.dilation_rate*(self.kernel_size-1)
-    #     self.dw_conv.build((None, input_shape[1] + pad_len, input_shape[2]))
-    #     super().build(input_shape)
-
-    # def get_config(self):
-    #     config = super().get_config()
-    #     config.update({
-    #         "kernel_size": self.kernel_size,
-    #         "dilation_rate": self.dilation_rate,
-    #         "use_bias": self.use_bias,
-    #         "depthwise_initializer": self.depthwise_initializer,
-    #     })
-    #     return config
 
 def Conv1DBlock(channel_size,
                 kernel_size,

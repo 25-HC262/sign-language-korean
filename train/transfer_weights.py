@@ -60,7 +60,7 @@ def load_asl_model(weights_path: str) -> keras.Model:
         dim=192
     )
     try:
-        asl_model.load_weights(weights_path)
+        asl_model.load_weights(weights_path, by_name=True, skip_mismatch=True)
     except Exception as e:
         print(f"[!] 로드 실패: {e}")
         raise
