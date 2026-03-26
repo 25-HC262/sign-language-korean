@@ -18,11 +18,11 @@ import tensorflow as tf
 from tqdm import tqdm
 
 from src.asl_finetune_config import (
-    POINT_LANDMARKS_ASL, NUM_NODES_ASL, CHANNELS_ASL,
-    KSL_SENTENCES, DIRECTIONS, VALIDATION_SPLIT, MAX_LEN,
-    BATCH_SIZE, PAD, NECK_IDX_IN_SELECTED,
+    POINT_LANDMARKS_ASL, CHANNELS_ASL,
+     MAX_LEN, NECK_IDX_IN_SELECTED,
 )
-from src.config import L_DATA, L_TEST, Trainer, UMAP_OUTPUT_DIM
+from src.config import KSL_SENTENCES, DIRECTIONS, VALIDATION_SPLIT
+from src.config import L_DATA, L_TEST
 
 
 class ASLCompatDataLoader:
