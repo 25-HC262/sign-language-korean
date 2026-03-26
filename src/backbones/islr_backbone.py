@@ -59,10 +59,12 @@ class ISLRPreprocess(tf.keras.layers.Layer):
         self.point_landmarks = point_landmarks if point_landmarks is not None else ISLR_POINT_LANDMARKS
 
     def call(self, inputs):
-        if tf.rank(inputs) == 3:
-            x = inputs[None, ...]   # (1, T, 543, 3)
-        else:
-            x = inputs              # (B, T, 543, 3)
+        # @tf.function 그래프 모드에서 Python bool 비교 불가 → tf.cond 사용
+        x = tf.cond(
+            tf.equal(tf.rank(inputs), 3),
+            lambda: tf.expand_dims(inputs, 0),  # (1, T, 543, 3)
+            lambda: inputs,                     # (B, T, 543, 3)
+        )
 
         # 랜드마크 17(입술 중앙)을 기준으로 정규화
         mean = _tf_nan_mean(tf.gather(x, [17], axis=2), axis=[1, 2], keepdims=True)
