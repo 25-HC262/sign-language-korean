@@ -130,7 +130,7 @@ LEARNING_RATE_FOR_UMAP = 0.001
 BATCH_SIZE = 32
 BATCH_SIZE_FOR_UMAP = 1024
 WEIGHT_DECAY = 0.01
-EPOCHS = 200
+EPOCHS = 100
 EPOCHS_FOR_UMAP = 100
 VALIDATION_SPLIT = 0.2
 TEST_RATE = 1
@@ -402,7 +402,7 @@ GM_LOAD_PATH = f'{L_GM}/{GM_MODEL}'       # 프로젝트에 사용되는 최적 
 # ============== 학습을 위한 모델 설정 ==============
 DATA_TYPE = DataType.GLOSS # default
 NUM_NODES = len(POINT_LANDMARKS) # 49
-CHANNELS = KEYPOINT_DIM * NUM_NODES  # x, y OR x, y, z for each point
+CHANNELS = KEYPOINT_DIM * NUM_NODES * 3  # x, y OR x, y, z for each point
 OUTPUT_DIM = CHANNELS
 UMAP_OUTPUT_DIM = 32 # default
 

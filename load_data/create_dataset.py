@@ -400,7 +400,7 @@ class TrainDataLoader:
                         if len(keypoints_batch) == 0: continue
 
                         if self.trainer is Trainer.GM:
-                            keypoints_batch = np.array(keypoints_batch)                 # (T, 98)
+                            keypoints_batch = self._add_dynamic_features(np.array(keypoints_batch))    # (T, 98) -> 동적 피드 추가
                             if self.dim_reduction:
                                 keypoints_batch = self.umap_encoder.predict(keypoints_batch) # (T, 32)
                             self.videos.append({
@@ -635,6 +635,30 @@ class TrainDataLoader:
             return self._json_to_numpy(person)
         except Exception as e:
             raise ValueError(f"Error processing {file_path}: {e}")
+
+    def _add_dynamic_features(self, sequence: np.ndarray) -> np.ndarray:
+        """
+        input sequence shape: (T, 49, 2)
+        output sequence shape: (T, 49, 6) -> (pos, dx, dx2)
+        """
+        T, P, C = sequence.shape # Time, Points(49), Channels(2)
+
+        # 1. 속도 (dx) 계산: (T, 49, 2)
+        # 다음 프레임에서 현재 프레임을 뺌. 마지막 프레임은 0으로 패딩하여 길이 T 유지
+        dx = np.zeros_like(sequence)
+        dx[:-1] = sequence[1:] - sequence[:-1]
+
+        # 2. 가속도 (dx2) 계산: (T, 49, 2)
+        # 2프레임 뒤에서 현재 프레임을 뺌. 마지막 2프레임은 0으로 패딩
+        dx2 = np.zeros_like(sequence)
+        dx2[:-2] = sequence[2:] - sequence[:-2]
+
+        # 3. 결합 (Concatenate): (T, 49, 2 + 2 + 2) = (T, 49, 6)
+        combined = np.concatenate([sequence, dx, dx2], axis=-1)
+
+        # 4. Flatten (모델 입력에 맞게): (T, 294)
+        # 49 * 6 = 294
+        return combined.reshape(T, -1)
 
     #  --- S3 exclusive helper method ---
     def _list_s3_subdirs(self, prefix):
