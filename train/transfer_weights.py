@@ -18,7 +18,6 @@ from pathlib import Path
 os.environ["KERAS_BACKEND"] = "tensorflow"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-import tensorflow as tf
 import keras
 
 # 프로젝트 루트를 sys.path에 추가

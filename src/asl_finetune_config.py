@@ -12,7 +12,7 @@ from src.config import (
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ASL_WEIGHTS_PATH = str(
     _PROJECT_ROOT.parent / "sign-language-korean" / "models" /
-    "islr-fp16-192-8-seed_all42-foldall-last.h5"
+    "islr-fp16-192-8-seed_all42-foldall-best.h5"
 )
 
 # ============= 파인튜닝 아키텍처 상수 =============
@@ -60,3 +60,6 @@ if __name__ == "__main__":
     print(f"POINT_LANDMARKS_ASL (first 10): {POINT_LANDMARKS_ASL[:10]}")
     print(f"ASL_WEIGHTS_PATH: {ASL_WEIGHTS_PATH}")
     print(f"KSL_FINETUNE_DIM: {KSL_FINETUNE_DIM}")
+
+
+MAX_LEN = 380
