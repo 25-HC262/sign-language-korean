@@ -22,27 +22,23 @@ importlib.import_module("src.tf_keras_config")
 
 import argparse
 import os
-import random
 import sys
 from pathlib import Path
 
 os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 
-import numpy as np
 import tensorflow as tf
 import keras
 
 # ── 프로젝트 임포트 ──────────────────────────────────────────────────────────
 from load_data.asl_create_dataset import ASLCompatDataLoader
-from src.backbones.asl_finetune_backbone import get_asl_finetuned_model
 from src.asl_finetune_config import (
-    CHANNELS_ASL, KSL_FINETUNE_DIM, MAX_LEN,
-    FINETUNE_CKPT_DIR, FINETUNE_MODEL_DIR,
+    CHANNELS_ASL, KSL_FINETUNE_DIM, FINETUNE_CKPT_DIR, FINETUNE_MODEL_DIR,
     FINETUNE_STAGE1_LR, FINETUNE_STAGE2_LR, FINETUNE_STAGE3_LR,
     FINETUNE_STAGE1_EPOCHS, FINETUNE_STAGE2_EPOCHS, FINETUNE_STAGE3_EPOCHS,
     FINETUNE_LABEL_SMOOTHING,
-    L_DATA, BATCH_SIZE, VALIDATION_SPLIT,
 )
+from src.config import L_DATA, BATCH_SIZE
 from src.config import NUM_CLASSES
 
 

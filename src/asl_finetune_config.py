@@ -20,6 +20,7 @@ ASL_WEIGHTS_PATH = str(
 KSL_FINETUNE_DIM = 192
 
 NUM_CLASSES_ASL = 250
+MAX_LEN = 384
 
 # ============= 확장된 랜드마크 선택 =============
 # all_keypoints 배열 레이아웃: pose(0-24) + face(25-94) + lhand(95-115) + rhand(116-136)
