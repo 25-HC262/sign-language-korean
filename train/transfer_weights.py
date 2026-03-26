@@ -15,6 +15,8 @@ import os
 import sys
 from pathlib import Path
 
+from src.backbones.transformer_backbone import get_model
+
 os.environ["KERAS_BACKEND"] = "tensorflow"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
@@ -53,13 +55,18 @@ def load_asl_model(weights_path: str) -> keras.Model:
         'MultiHeadSelfAttention': MultiHeadSelfAttention,
     }
     print(f"[*] ASL 모델 로딩: {weights_path}")
+    asl_model = get_model(
+        max_len=384,
+        dim=192,
+        num_classes=250
+    )
     try:
-        model = keras.models.load_model(weights_path, custom_objects=custom_objects, compile=False)
+        asl_model.load_weights(weights_path)
     except Exception as e:
         print(f"[!] 로드 실패: {e}")
         raise
-    print(f"[*] ASL 모델 로드 완료. 레이어 수: {len(model.layers)}")
-    return model
+    print(f"[*] ASL 모델 로드 완료. 레이어 수: {len(asl_model.layers)}")
+    return asl_model
 
 
 def transfer_weights(asl_model: keras.Model, ksl_model: keras.Model) -> dict:
