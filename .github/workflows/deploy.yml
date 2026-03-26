@@ -79,10 +79,42 @@ jobs:
             --quiet \
             --command="sudo mkdir -p /opt/sign-language-korean/deploy && sudo mv ~/redeploy.sh /opt/sign-language-korean/deploy/redeploy.sh"
 
-      - name: Deploy to GCE via IAP SSH
+      - name: Deploy Korean server to GCE via IAP SSH
         run: |
           gcloud compute ssh sign-language-model \
             --zone=asia-northeast3-a \
             --tunnel-through-iap \
             --quiet \
             --command="sudo bash /opt/sign-language-korean/deploy/redeploy.sh ${{ env.IMAGE }}:${{ github.sha }}"
+
+      - name: Prepare VM for ISLR server
+        run: |
+          gcloud compute ssh sign-language-model \
+            --zone=asia-northeast3-a \
+            --tunnel-through-iap \
+            --quiet \
+            --command='
+              sudo mkdir -p /opt/sign-language-islr/models/islr
+              sudo touch /opt/sign-language-islr/.last-deployed-image
+            '
+
+      - name: Upload ISLR redeploy script to VM
+        run: |
+          gcloud compute scp deploy/redeploy_islr.sh \
+            sign-language-model:~/redeploy_islr.sh \
+            --zone=asia-northeast3-a \
+            --tunnel-through-iap \
+            --quiet
+          gcloud compute ssh sign-language-model \
+            --zone=asia-northeast3-a \
+            --tunnel-through-iap \
+            --quiet \
+            --command="sudo mkdir -p /opt/sign-language-islr/deploy && sudo mv ~/redeploy_islr.sh /opt/sign-language-islr/deploy/redeploy_islr.sh"
+
+      - name: Deploy ISLR server to GCE via IAP SSH
+        run: |
+          gcloud compute ssh sign-language-model \
+            --zone=asia-northeast3-a \
+            --tunnel-through-iap \
+            --quiet \
+            --command="sudo bash /opt/sign-language-islr/deploy/redeploy_islr.sh ${{ env.IMAGE }}:${{ github.sha }}"
