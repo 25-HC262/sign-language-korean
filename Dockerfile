@@ -28,4 +28,9 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main_asl_finetune:app", "--host", "0.0.0.0", "--port", "8000"]
+# SERVER_MODULE 환경변수로 실행할 서버를 선택합니다.
+# main_asl_finetune : 파인튜닝된 KSL 모델 (기본값)
+# main_islr         : ISLR ASL 모델 (250 클래스 영어 수어)
+ENV SERVER_MODULE=main_asl_finetune
+
+CMD ["sh", "-c", "exec uvicorn ${SERVER_MODULE}:app --host 0.0.0.0 --port 8000"]
