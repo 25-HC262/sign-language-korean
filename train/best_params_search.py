@@ -25,8 +25,11 @@ def objective(trial):
 
     # 1. 하이퍼파라미터 탐색 공간 정의
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
-    batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
+    batch_size = trial.suggest_categorical("batch_size", [16, 32])
     weight_decay = trial.suggest_float("weight_decay", 0.0, 0.3)
+
+    # 라벨 스무딩: 모델이 정답을 100% 확신하지 못하게 하여 오버피팅 억제
+    label_smoothing = trial.suggest_float("label_smoothing", 0.0, 0.2)
 
     num_train_epochs = EPOCHS
     sequence_length = CROP_LEN
@@ -55,7 +58,7 @@ def objective(trial):
     model = get_model(max_len=sequence_length, dim=output_dim, num_classes=NUM_CLASSES)
     model.compile(
         optimizer = keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay),
-        loss = keras.losses.SparseCategoricalCrossentropy(),
+        loss = keras.losses.SparseCategoricalCrossentropy(label_smoothing=label_smoothing),
         metrics = ['accuracy']
     )
     print("Model compile finished.")
@@ -85,18 +88,18 @@ def objective(trial):
             ),
             keras.callbacks.EarlyStopping(
                 monitor=monitor_metric,
-                patience=10,
+                patience=5,
                 restore_best_weights=True,
                 verbose=1
             ),
             keras.callbacks.ReduceLROnPlateau(
                 monitor=monitor_metric,
                 factor=0.5,
-                patience=5,
+                patience=3,
                 min_lr=dynamic_min_lr,
                 verbose=1
             ),
-            KerasPruningCallback(trial, 'val_loss') # 에폭 종료 시마다 'val_loss' optuna에 보고
+            KerasPruningCallback(trial, monitor_metric) # 에폭 종료 시마다 'val_loss' optuna에 보고
         ]
     )
 
