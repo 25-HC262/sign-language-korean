@@ -85,7 +85,7 @@ tf.get_logger().setLevel("ERROR")
 model = None
 try:
     _backbone = get_islr_model()
-    _backbone.load_weights(ISLR_MODEL_PATH)
+    _backbone.load_weights(ISLR_MODEL_PATH, by_name=True, skip_mismatch=True)
     model = ISLRTFLiteModel(islr_models=[_backbone])
     print(f"[*] ISLR 모델 로딩 완료. 클래스 수: {len(idx_to_label)}")
 except Exception as e:
