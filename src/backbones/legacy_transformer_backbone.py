@@ -7,7 +7,7 @@ import keras
 keras.mixed_precision.set_global_policy("mixed_float16") # fp16 가속 keras3 버전, 모델 구성 & 학습 시에만 사용
 import tensorflow as tf
 
-from src.asl_finetune_config import MAX_LEN, CHANNELS_ASL
+from src.asl_finetune_config import MAX_LEN, CHANNELS_ASL, NUM_CLASSES_ASL
 from src.utils import Preprocess
 
 MBBLOCK_COUNTER = itertools.count(1)
