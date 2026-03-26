@@ -57,8 +57,7 @@ def load_asl_model(weights_path: str) -> keras.Model:
     print(f"[*] ASL 모델 로딩: {weights_path}")
     asl_model = get_model(
         max_len=384,
-        dim=192,
-        num_classes=250
+        dim=192
     )
     try:
         asl_model.load_weights(weights_path)
