@@ -11,7 +11,6 @@ MediaPipe Tasks API (face/pose/hand landmarker)를 재사용해 (543, 3) 랜드�
 import json
 import logging
 import os
-import time
 from collections import deque
 
 import cv2
@@ -28,7 +27,6 @@ from load_data.islr_inference import extract_coordinates_for_islr
 logger = logging.getLogger("islr")
 logging.basicConfig(level=logging.INFO)
 
-PREDICTION_COOLDOWN_SEC = 1.5
 PREDICTION_STRIDE = 30   # sign-language SEQ_LEN과 동일 (30프레임마다 예측)
 SMOOTHING_WINDOW = 3
 THRESHOLD = 0.5
@@ -108,11 +106,10 @@ async def health():
     }
 
 
-def _init_user(uid, seqs, last_label, last_emit, frame_cnt, prob_hist):
+def _init_user(uid, seqs, last_label, frame_cnt, prob_hist):
     if uid not in seqs:
         seqs[uid]       = deque(maxlen=PREDICTION_STRIDE)
         last_label[uid] = ""
-        last_emit[uid]  = 0.0
         frame_cnt[uid]  = 0
         prob_hist[uid]  = deque(maxlen=SMOOTHING_WINDOW)
 
@@ -124,7 +121,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
     seqs:       dict[str, deque] = {}
     last_label: dict[str, str]   = {}
-    last_emit:  dict[str, float] = {}
     frame_cnt:  dict[str, int]   = {}
     prob_hist:  dict[str, deque] = {}
 
@@ -138,9 +134,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     ctrl = json.loads(message["text"])
                     uid  = ctrl.get("userId")
                     if ctrl.get("type") == "stream_config" and uid:
-                        _init_user(uid, seqs, last_label, last_emit, frame_cnt, prob_hist)
+                        _init_user(uid, seqs, last_label, frame_cnt, prob_hist)
                     elif ctrl.get("type") == "stop_stream" and uid:
-                        for d in (seqs, last_label, last_emit, frame_cnt, prob_hist):
+                        for d in (seqs, last_label, frame_cnt, prob_hist):
                             d.pop(uid, None)
                 except Exception as e:
                     print(f"제어 메시지 파싱 오류: {e}")
@@ -158,7 +154,7 @@ async def websocket_endpoint(websocket: WebSocket):
             frame_data = raw[4 + user_id_len:]
 
             if user_id not in seqs:
-                _init_user(user_id, seqs, last_label, last_emit, frame_cnt, prob_hist)
+                _init_user(user_id, seqs, last_label, frame_cnt, prob_hist)
 
             nparr = np.frombuffer(frame_data, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -191,16 +187,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     if confidence >= THRESHOLD:
                         pred_sign = idx_to_label.get(pred_idx, "unknown")
-                        now = time.time()
-                        should_emit = (
-                            pred_sign != last_label[user_id] or
-                            (now - last_emit[user_id]) >= PREDICTION_COOLDOWN_SEC
-                        )
-                        if should_emit:
+                        if pred_sign != last_label[user_id]:
                             last_label[user_id] = pred_sign
-                            last_emit[user_id]  = now
-                            result_text = f"{pred_sign} ({confidence:.0%})"
-                            await websocket.send_json({"userId": user_id, "text": result_text})
+                            await websocket.send_json({"userId": user_id, "text": pred_sign})
 
                 except Exception as e:
                     print(f"[{user_id}] 예측 오류: {e}")
