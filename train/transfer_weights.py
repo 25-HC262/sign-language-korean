@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from src.backbones.transformer_backbone import get_model
+from src.backbones.legacy_transformer_backbone import get_model
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
