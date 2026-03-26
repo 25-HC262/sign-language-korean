@@ -243,7 +243,7 @@ class TrainDataLoader:
         self.videos = []
         self.umap_keypoints_list = []
 
-    def _test_generator(self, path=None) -> tf.data.Dataset:
+    def _base_generator(self, path=None) -> tf.data.Dataset:
         self.max_len = MAX_LEN
         # self.videos 구성
         self._get_all_filepaths(path=path)
@@ -270,62 +270,8 @@ class TrainDataLoader:
         )
         return full_dataset
 
-    def _train_val_generator(self, path=None) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
-        self.max_len = MAX_LEN
-        # self.videos 구성
-        self._get_all_filepaths(path=path)
-
-        all_people = list(set([v['person_id'] for v in self.videos])) # 모든 유니크한 인물(Person ID) 추출
-        random.seed(42)
-        random.shuffle(all_people)
-
-        val_size_people = int(len(all_people) * VALIDATION_SPLIT)
-        val_people_ids = all_people[:val_size_people]
-        train_people_ids = all_people[val_size_people:]
-
-        train_videos = [v for v in self.videos if v['person_id'] in train_people_ids]
-        val_videos = [v for v in self.videos if v['person_id'] in val_people_ids]
-
-        self.full_ds_size = len(self.videos)
-        self.train_ds_size = len(train_videos)
-        self.val_ds_size = len(val_videos)
-
-        def _data_generator(vids, is_training=True):
-            def gen():
-                # 훈련용일 때만 매번 셔플하여 모델이 순서를 못 외우게 함
-                local_vids = list(vids)
-                if is_training:
-                    random.shuffle(local_vids)
-
-                for video in local_vids:
-                    seq = video['sequence']
-                    # Padding 로직
-                    if len(seq) > self.max_len:
-                        seq = seq[:self.max_len]
-                    else:
-                        # self.output_dim (49*6=294) 기준 패딩
-                        padding = np.zeros((self.max_len - len(seq), self.output_dim))
-                        seq = np.concatenate([seq, padding], axis=0)
-                    yield seq.astype(np.float32), np.int32(video['class_label'])
-            return gen
-
-        output_signature=(
-            tf.TensorSpec(shape=(self.max_len, self.output_dim), dtype=tf.float32),
-            tf.TensorSpec(shape=(), dtype=tf.int32)
-        )
-
-        train_dataset = tf.data.Dataset.from_generator(
-            _data_generator(train_videos, is_training=True),
-            output_signature=output_signature
-        )
-        val_dataset = tf.data.Dataset.from_generator(
-            _data_generator(val_videos, is_training=False),
-            output_signature=output_signature
-        )
-        return train_dataset, val_dataset
-
     def create_test_dataset(self) -> tf.data.Dataset:
-        test_dataset = self._test_generator(path=self.test_data_path)
+        test_dataset = self._base_generator(path=self.test_data_path)
         test_size = int(len(self.videos) * TEST_RATE)
         print(f"테스트 데이터셋 크기 (예상): {test_size}")
 
@@ -341,7 +287,6 @@ class TrainDataLoader:
         self.umap_keypoints_list = None
         return test_ds
 
-    # self._add_dynamic_features 적용 안 함.
     def create_umap_train_dataset(self) -> Tuple[np.ndarray, np.ndarray]:
         self._get_all_filepaths(umap_data_num=self.umap_data_num)
         print(f"Loading and processing umap data from {self.data_path}...")
@@ -360,20 +305,26 @@ class TrainDataLoader:
         return train_ds, val_ds
 
     def create_gm_train_dataset(self) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
-        train_ds, val_ds = self._train_val_generator() # path는 기본 self.data_path
+        full_dataset = self._base_generator() # path는 기본 self.data_path
+        dataset_size = len(self.videos)
+        print(f"훈련에 사용되는 전체 데이터셋 크기: {dataset_size}")
+        val_size = int(dataset_size * VALIDATION_SPLIT) # 남은 데이터 1:1-VAL로 분리
+        train_size = dataset_size-val_size
+        print(f"훈련 데이터셋 크기 (예상): {train_size}")
+        print(f"검증 데이터셋 크기 (예상): {val_size}")
 
-        print(f"훈련에 사용되는 전체 데이터셋 크기: {self.full_ds_size}")
-        print(f"훈련 데이터셋 크기 (예상): {self.train_ds_size}")
-        print(f"검증 데이터셋 크기 (예상): {self.val_ds_size}")
+        val_dataset = full_dataset.take(val_size)
+        train_dataset = full_dataset.skip(val_size)
 
-        print("\nTrain Dataset Spec:\n", train_ds)
-        print("\nValidation Dataset Spec:\n", val_ds)
+        print("\nTrain Dataset Spec:\n", train_dataset)
+        print("\nValidation Dataset Spec:\n", val_dataset)
         # 데이터 비우기
         self.videos = None
 
-        return train_ds, val_ds
+        return train_dataset, val_dataset
 
     # 훈련 data 혹은 test data를 가져옴.
+    # dim_reduction에 따라 데이터 차원축소를 하거나 하지 않음.
     def _get_all_filepaths(self, umap_data_num: int=None, path=None):
         path = str(self.data_path) if path is None else str(path)
         print(f"\nStarting data loading from: {path}")
@@ -419,8 +370,6 @@ class TrainDataLoader:
                     for person_path in tqdm(person_paths, desc=f"Loading {folder_name}_{direction}",
                                             position=1, leave=False):
                         person_path_str = str(person_path)
-                        parts = person_path_str.split('_') # NIA_SL_SEN0354_REAL01_D
-                        person_id = parts[3].replace('REAL', '') # 01
                         if is_s3:
                             keypoint_files = self._get_s3_keypoint_files(person_path_str)
                         elif is_gcs:
@@ -457,8 +406,7 @@ class TrainDataLoader:
                                 keypoints_batch = self.umap_encoder.predict(keypoints_batch) # (T, 32) - umap의 인풋 데이터 크기가 98이지만 현재 49*6
                             self.videos.append({
                                 'sequence': keypoints_batch,
-                                'class_label': self.label_map[folder_name],
-                                'person_id': person_id
+                                'class_label': self.label_map[folder_name]
                             })
         if self.trainer is Trainer.UMAP:
             print(f"[*] UMAP용 키포인트 변환 중... {len(keypoints_list)} 프레임 중 {umap_data_num}개 뽑기")
@@ -489,7 +437,7 @@ class TrainDataLoader:
         print(f"[*] Filtered blobs count: {len(all_blobs)} (Found only target classes)")
 
         # 2. 파일들을 구조화: {클래스: {방향: {사람ID: [파일리스트]}}}
-        # GCS 경로 예시: data/NIA_SL_SEN0354/NIA_SL_SEN0354_D/NIA_SL_SEN0354_REAL01_D/NIA_SL_SEN0354_REAL01_D_00000001_keypoints.json
+        # GCS 경로 예시: data/SENTENCE_01/SENTENCE_01_D/REAL_01_D/frame_01_keypoints.json
         structured_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
         all_json_files = [] # UMAP용 전체 리스트
@@ -501,10 +449,8 @@ class TrainDataLoader:
             if len(parts) < 4: continue # 경로 구조 확인 (class/dir/person/file)
 
             cls, direction, person, filename = parts[0], parts[1], parts[2], parts[3]
-            p = person.split('_') # NIA_SL_SEN0354_REAL01_D
-            person_id = p[3].replace('REAL', '') # 01
             file_url = f"gs://{self.gcs_bucket_name}/{blob.name}"
-            structured_data[cls][direction][person_id].append(file_url)
+            structured_data[cls][direction][person].append(file_url)
             all_json_files.append(file_url)
 
         # 3. 병렬 다운로드 함수 정의
@@ -546,8 +492,7 @@ class TrainDataLoader:
                             if cls_name in self.label_map:
                                 self.videos.append({
                                     'sequence': keypoints_batch,
-                                    'class_label': self.label_map[cls_name],
-                                    'person_id': person_id
+                                    'class_label': self.label_map[cls_name]
                                 })
                             else:
                                 # 맵에 없는 클래스는 경고만 띄우고 스킵합니다.
