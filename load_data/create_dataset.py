@@ -384,11 +384,12 @@ class TrainDataLoader:
                                             disable=len(keypoint_files)<10):
                             try:
                                 file_path_tensor = tf.constant(kp_file)
-                                keypoints = self._load_json_from_path(file_path_tensor)
-                                keypoints = keypoints.reshape(-1) # (98, )
+                                keypoints = self._load_json_from_path(file_path_tensor) # (49, 2)
+                                # keypoints = keypoints.reshape(-1) # (98, )
 
                                 # UMAP인 경우 모든 프레임 개별 저장
                                 if self.trainer is Trainer.UMAP:
+                                    keypoints = keypoints.reshape(-1)
                                     keypoints_list.append(keypoints)
                                 # GM인 경우 배치에 저장
                                 keypoints_batch.append(keypoints)
@@ -400,9 +401,9 @@ class TrainDataLoader:
                         if len(keypoints_batch) == 0: continue
 
                         if self.trainer is Trainer.GM:
-                            keypoints_batch = self._add_dynamic_features(np.array(keypoints_batch))    # (T, 98) -> 동적 피드 추가
+                            keypoints_batch = self._add_dynamic_features(np.array(keypoints_batch))    # (T, 49, 2) -> 동적 피드 추가 (T, 49*6)
                             if self.dim_reduction:
-                                keypoints_batch = self.umap_encoder.predict(keypoints_batch) # (T, 32)
+                                keypoints_batch = self.umap_encoder.predict(keypoints_batch) # (T, 32) - umap의 인풋 데이터 크기가 98이지만 현재 49*6
                             self.videos.append({
                                 'sequence': keypoints_batch,
                                 'class_label': self.label_map[folder_name]
@@ -455,7 +456,8 @@ class TrainDataLoader:
         # 3. 병렬 다운로드 함수 정의
         def load_frame(url):
             try:
-                return self._load_json_from_path(tf.constant(url)).reshape(-1)
+                # (T, 49, 2)
+                return self._load_json_from_path(tf.constant(url)) # .reshape(-1)
             except:
                 return None
 
@@ -481,7 +483,7 @@ class TrainDataLoader:
 
                         # 수치화 및 저장
                         if self.trainer is Trainer.GM:
-                            keypoints_batch = np.array(keypoints_batch)
+                            keypoints_batch = self._add_dynamic_features(np.array(keypoints_batch))    # (T, 49, 2) -> 동적 피드 추가 (T, 49*6)
                             if self.dim_reduction:
                                 # predict는 GPU 연산이므로 루프 밖이나 배치로 처리하는 게 좋지만,
                                 # 일단 구조 유지를 위해 여기서 처리
@@ -641,7 +643,7 @@ class TrainDataLoader:
         input sequence shape: (T, 49, 2)
         output sequence shape: (T, 49, 6) -> (pos, dx, dx2)
         """
-        T, P, C = sequence.shape # Time, Points(49), Channels(2)
+        T, P, C = sequence.shape # Sequence, Points(49), Channels(2)
 
         # 1. 속도 (dx) 계산: (T, 49, 2)
         # 다음 프레임에서 현재 프레임을 뺌. 마지막 프레임은 0으로 패딩하여 길이 T 유지
