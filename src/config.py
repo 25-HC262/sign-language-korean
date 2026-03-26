@@ -117,7 +117,7 @@ DIRECTIONS = ['D', 'F', 'L', 'R', 'U']
 
 # Model parameters
 THRESHOLD = 0.5
-SEQ_LEN = 60  # 현재 test에서 사용 중. 통일 필요한지 고민할 것.
+SEQ_LEN = 300  # 현재 test에서 사용 중. 통일 필요한지 고민할 것.
 ROWS_PER_FRAME = 137 # 제거 필요.
 CROP_LEN = 300
 MAX_LEN = 380 # CROP_LEN # 최대 프레임 길이 (매번 계산할 수 없으므로 수동 계산)
