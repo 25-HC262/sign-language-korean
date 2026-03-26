@@ -20,7 +20,7 @@ from load_data.inference import mediapipe_to_openpose_keypoints, \
     main_preprocess_sequence
 from src.backbones.transformer_backbone import CausalDWConv1D, ECA, LateDropout, \
     MultiHeadSelfAttention
-from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN, get_config_args, PathConfig
+from src.config import SEQ_LEN, THRESHOLD, KSL_SENTENCES, GM_LOAD_PATH, CROP_LEN, USE_UMAP, get_config_args, PathConfig
 
 logger = logging.getLogger("ksl")
 logging.basicConfig(level=logging.INFO)
@@ -93,14 +93,18 @@ except Exception as e:
         print(f"최종 모델 로딩 실패: {e2}")
         model = None
 
-print("UMAP 인코더 로딩 중...")
-try:
-    _, args = get_config_args()
-    _umap_path = PathConfig(args).UMAP_LOAD_PATH
-    umap_encoder = keras.models.load_model(_umap_path)
-    print(f"UMAP 인코더 로딩 완료: {_umap_path}")
-except Exception as e:
-    print(f"UMAP 인코더 로딩 실패: {e}")
+if USE_UMAP:
+    print("UMAP 인코더 로딩 중...")
+    try:
+        _, args = get_config_args()
+        _umap_path = PathConfig(args).UMAP_LOAD_PATH
+        umap_encoder = keras.models.load_model(_umap_path)
+        print(f"UMAP 인코더 로딩 완료: {_umap_path}")
+    except Exception as e:
+        print(f"UMAP 인코더 로딩 실패: {e}")
+        umap_encoder = None
+else:
+    print("UMAP 인코더 비활성화 (USE_UMAP=False)")
     umap_encoder = None
 
 # -- FastAPI 앱 및 WebSocket 엔드포인트 --
@@ -108,7 +112,7 @@ app = FastAPI()
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "model_loaded": model is not None, "umap_loaded": umap_encoder is not None}
+    return {"status": "ok", "model_loaded": model is not None, "umap_enabled": USE_UMAP, "umap_loaded": umap_encoder is not None}
 
 @app.get("/debug/toggle")
 async def toggle_debug():
@@ -262,19 +266,20 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # 60프레임 + STRIDE마다 예측
             if (len(user_sequences[user_id]) == SEQ_LEN
-                    and model and umap_encoder
+                    and model and (not USE_UMAP or umap_encoder)
                     and user_frame_count[user_id] % PREDICTION_STRIDE == 0):
                 try:
                     seq_array = np.array(list(user_sequences[user_id]))
                     processed_seq = main_preprocess_sequence(
-                        seq_array, max_len=CROP_LEN, umap_encoder=umap_encoder
+                        seq_array, max_len=CROP_LEN,
+                        umap_encoder=umap_encoder if USE_UMAP else None
                     )
 
                     if _debug["enabled"]:
                         logger.info(
-                            f"[{user_id}] UMAP embedding: "
-                            f"mean={processed_seq.mean():.3f} std={processed_seq.std():.3f} "
-                            f"min={processed_seq.min():.3f} max={processed_seq.max():.3f}"
+                            f"[{user_id}] 전처리 결과 (UMAP={'on' if USE_UMAP else 'off'}): "
+                            f"shape={processed_seq.shape} "
+                            f"mean={processed_seq.mean():.3f} std={processed_seq.std():.3f}"
                         )
 
                     input_batch = np.expand_dims(processed_seq, axis=0)

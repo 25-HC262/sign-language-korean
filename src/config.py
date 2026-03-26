@@ -52,10 +52,11 @@ class PathConfig:
         self.UPLOAD_MODE = args.upload
         self.UMAP_MODEL = getattr(args, 'umap', 'encoder.keras')
         self.KEYPOINT_DIM = getattr(args, 'kpt_dim', 2) # default 2
-        self.GM_MODEL = getattr(args, 'gm', "gloss_transformer_2026_02_26_06-07.keras")
+        self.GM_MODEL = getattr(args, 'gm', "gloss_transformer_2026_03_25_16-22.keras")
         self.SELECTED_GM_TYPE = getattr(args, 'gmt', "transformer")
         self.UMAP_OUTPUT_DIM = getattr(args, 'u_dim', 32)
         self.UMAP_MODEL = getattr(args, 'umap', 'encoder.keras')
+        self.USE_UMAP = getattr(args, 'use_umap', False)
 
         # 새로운 모델 저장
         self.names = {
@@ -370,6 +371,13 @@ def get_gm_args(parent: argparse.ArgumentParser, rest: List[str])  -> Tuple[argp
         "--umap",
         default="encoder.keras"
     )
+    parser.add_argument(
+        "--use-umap",
+        dest="use_umap",
+        action="store_true",
+        default=False,
+        help="UMAP 인코더를 전처리에 사용 (기본값: 미사용)"
+    )
     # 2. main 사용 gloss 모델 선택 옵션 - args.gm에 저장
     parser.add_argument(
         "-g", "--gm", "--gloss_model",
@@ -386,7 +394,8 @@ def get_gm_args(parent: argparse.ArgumentParser, rest: List[str])  -> Tuple[argp
 # 최종 경로
 UMAP_MODEL = 'encoder.keras'
 KEYPOINT_DIM = 2 # default 2
-GM_MODEL = "gloss_transformer_2026_02_26_06-07.keras"
+GM_MODEL = "gloss_transformer_2026_03_25_16-22.keras"
+USE_UMAP = False  # True로 변경하면 UMAP 인코더 전처리 활성화 (UMAP을 사용하는 모델 전용)
 UMAP_LOAD_PATH = f'{L_UMAP}/{UMAP_MODEL}' # GM 학습 & 프로젝트에 사용되는 최적 UMAP MODEL
 GM_LOAD_PATH = f'{L_GM}/{GM_MODEL}'       # 프로젝트에 사용되는 최적 GLOSS MODEL
 
