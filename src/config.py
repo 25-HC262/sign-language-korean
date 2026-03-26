@@ -35,7 +35,7 @@ print(f"[*] Local Project Path Initialized at: {PROJECT_ROOT}")
 base_map = {
     "G": ("gs://openpose-keypoint", "gs://trout-models/umap_models", "gs://trout-models/gloss_models", "gs://trout-models/checkpoints", "gs://test-openpose-keypoint", "gs://trout-models/data/tools", "gs://trout-models/data/processed"),
     "S": ("s3://openpose-keypoints", "s3://trout-model/umap_models", "s3://trout-model/gloss_models", "s3://trout-model/checkpoints", "s3://test-openpose-keypoints", "s3://trout-models/data/tools", "s3://trout-models/data/processed"),
-    "L": ("data/openpose-keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints", "data/test-openpose-keypoints", "tools/", "data/processed")
+    "L": ("data/keypoints", "models/umap_models", "models/gloss_models", "models/checkpoints", "data/test", "tools/", "data/processed")
 }
 date_idx = datetime.datetime.now().strftime("%Y_%m_%d_%H-%M")
 
@@ -106,7 +106,7 @@ class PathConfig:
 
 # ============= KOREAN SIGN LANGUAGE SENTENCES =============
 # 라벨링 데이터
-label_map_name = "label_map.json"
+label_map_name = "all_label_map.json"
 LABEL_MAP_PATH = PROJECT_ROOT / "src" / label_map_name
 if LABEL_MAP_PATH.exists():
     with open(LABEL_MAP_PATH, 'r', encoding='utf-8') as f:
