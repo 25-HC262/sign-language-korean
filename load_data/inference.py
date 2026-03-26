@@ -34,7 +34,7 @@ def mediapipe_to_openpose_keypoints(pose_result, hand_result, image_width, image
     return np.concatenate([pose, face, left_hand, right_hand], axis=0)
 
 
-def main_preprocess_sequence(sequence: np.ndarray, max_len: int, umap_encoder) -> np.ndarray:
+def main_preprocess_sequence(sequence: np.ndarray, max_len: int, umap_encoder=None) -> np.ndarray:
     sequence = np.array(sequence)[..., :2]  # (x, y)만 사용, visibility/z 제거
     original_len = len(sequence)
 
@@ -65,6 +65,7 @@ def main_preprocess_sequence(sequence: np.ndarray, max_len: int, umap_encoder) -
     selected_seq = selected_seq.reshape(max_len, -1)
     selected_seq = np.nan_to_num(selected_seq, 0)
 
-    embedding = umap_encoder.predict(selected_seq, verbose=0)
+    if umap_encoder is not None:
+        return umap_encoder.predict(selected_seq, verbose=0)
 
-    return embedding
+    return selected_seq
