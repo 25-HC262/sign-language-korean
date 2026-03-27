@@ -29,7 +29,7 @@ logging.basicConfig(level=logging.INFO)
 
 PREDICTION_STRIDE = 30   # 예측 주기 (프레임 수). 낮출수록 응답 빠름, 오탐 증가
 SMOOTHING_WINDOW = 3
-THRESHOLD = 0.3
+THRESHOLD = 0.18
 
 # ── 라벨 맵 ──────────────────────────────────────────────────────────────────
 _SIGN_MAP_PATH = os.path.join(os.path.dirname(__file__), "src", "islr_sign_map.json")
