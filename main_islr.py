@@ -27,9 +27,9 @@ from load_data.islr_inference import extract_coordinates_for_islr
 logger = logging.getLogger("islr")
 logging.basicConfig(level=logging.INFO)
 
-PREDICTION_STRIDE = 30   # sign-language SEQ_LEN과 동일 (30프레임마다 예측)
+PREDICTION_STRIDE = 30   # 예측 주기 (프레임 수). 낮출수록 응답 빠름, 오탐 증가
 SMOOTHING_WINDOW = 3
-THRESHOLD = 0.5
+THRESHOLD = 0.3
 
 # ── 라벨 맵 ──────────────────────────────────────────────────────────────────
 _SIGN_MAP_PATH = os.path.join(os.path.dirname(__file__), "src", "islr_sign_map.json")
